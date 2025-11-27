@@ -81,6 +81,9 @@
             </a>
         </header>
 
+        <!-- Anti-forgery token for AJAX requests -->
+        @Html.AntiForgeryToken()
+
         <!-- Upload Section -->
         <div class="mb-8 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center transition-colors hover:border-gray-400"
              id="dropzone"
@@ -139,7 +142,23 @@
             <div class="mb-8">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="text-sm font-medium text-gray-900">Current Photos</h2>
-                    <p class="text-xs text-gray-500 font-mono">Drag to reorder</p>
+                    <div class="flex items-center gap-3">
+                        <p id="reorderHint" class="text-xs text-gray-500 font-mono">Drag to reorder</p>
+                        <div id="reorderActions" style="display: none;" class="flex items-center gap-2">
+                            <span class="text-xs text-amber-600 font-medium">Unsaved changes</span>
+                            <button type="button" onclick="cancelReorder()"
+                                    class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
+                                Cancel
+                            </button>
+                            <button type="button" onclick="savePhotoOrder()"
+                                    class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
+                                <svg class="mr-1.5 h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                </svg>
+                                Save Order
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="photo-grid" id="photoGrid">
@@ -148,13 +167,30 @@
                         <div class="photo-item group" data-photo-num="@photo.Num" draggable="true"
                              ondragstart="handlePhotoStart(event)"
                              ondragend="handlePhotoEnd(event)">
-                            <img src="https://picsum.photos/400/400?random=@photo.Num"
-                                 alt="Photo @photo.Num" />
+                            <img src="/images/places/@(Model.PlaceId)/@(photo.Num).jpg"
+                                 alt="Photo @photo.Num"
+                                 onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.Num).png'; this.onerror=function(){this.src='/images/places/@(Model.PlaceId)/@(photo.Num).jpeg';};" />
+
+                            @if (photo.IsFavorite)
+                            {
+                                <div class="absolute top-2 right-2 bg-amber-500 text-white p-1.5 rounded-full shadow-lg z-10">
+                                    <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                    </svg>
+                                </div>
+                            }
 
                             <div class="photo-actions">
                                 <span class="text-white text-xs font-mono bg-black/30 px-2 py-1 rounded">
                                     #@photo.Num
                                 </span>
+                                <button type="button" onclick="toggleFavorite(@Model.PlaceId, @photo.Num, @(photo.IsFavorite ? "false" : "true"))"
+                                        class="p-2 @(photo.IsFavorite ? "bg-amber-500 hover:bg-amber-600" : "bg-gray-600 hover:bg-gray-700") text-white rounded-md transition-colors"
+                                        title="@(photo.IsFavorite ? "Remove from favorite" : "Set as favorite")">
+                                    <svg class="h-4 w-4" fill="@(photo.IsFavorite ? "currentColor" : "none")" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                    </svg>
+                                </button>
                                 <button type="button" onclick="deletePhoto(@Model.PlaceId, @photo.Num)"
                                         class="p-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">
                                     <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -180,6 +216,7 @@
 
     <script>
         let uploadQueue = [];
+        const placeId = @Model.PlaceId;
 
         // Drag and drop for file upload
         function handleDragOver(e) {
@@ -321,46 +358,78 @@
             renderQueue();
         }
 
-        function startUpload() {
+        async function startUpload() {
             const uploadBtn = document.getElementById('uploadBtn');
             uploadBtn.disabled = true;
 
-            // Simulate upload for each file
-            uploadQueue.forEach((item, index) => {
-                if (item.status !== 'pending') return;
+            const pendingFiles = uploadQueue.filter(item => item.status === 'pending');
 
+            for (const item of pendingFiles) {
                 item.status = 'uploading';
                 renderQueue();
 
-                // Simulate progressive upload
-                let progress = 0;
-                const interval = setInterval(() => {
-                    progress += Math.random() * 30;
-                    if (progress >= 100) {
-                        progress = 100;
-                        item.progress = 100;
-                        item.status = 'success';
-                        clearInterval(interval);
-                        renderQueue();
+                const formData = new FormData();
+                formData.append('placeId', placeId);
+                formData.append('files', item.file);
 
-                        // Check if all uploads complete
-                        if (uploadQueue.every(f => f.status === 'success' || f.status === 'error')) {
-                            uploadBtn.disabled = false;
-                            setTimeout(() => {
-                                alert('All files uploaded! (This is just a UI prototype)');
-                                // In real app, would reload the photo grid here
-                            }, 500);
+                // Get anti-forgery token
+                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+
+                try {
+                    const xhr = new XMLHttpRequest();
+
+                    xhr.upload.addEventListener('progress', (e) => {
+                        if (e.lengthComputable) {
+                            item.progress = Math.round((e.loaded / e.total) * 100);
+                            renderQueue();
                         }
-                    } else {
-                        item.progress = Math.round(progress);
-                        renderQueue();
-                    }
-                }, 200 + Math.random() * 300);
-            });
+                    });
+
+                    const response = await new Promise((resolve, reject) => {
+                        xhr.open('POST', '/admin/photos/upload', true);
+                        xhr.setRequestHeader('RequestVerificationToken', token);
+
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                resolve(JSON.parse(xhr.responseText));
+                            } else {
+                                reject(new Error('Upload failed'));
+                            }
+                        };
+
+                        xhr.onerror = () => reject(new Error('Upload failed'));
+                        xhr.send(formData);
+                    });
+
+                    item.status = 'success';
+                    item.progress = 100;
+                } catch (error) {
+                    item.status = 'error';
+                    console.error('Upload error:', error);
+                }
+
+                renderQueue();
+            }
+
+            uploadBtn.disabled = false;
+
+            // Check if all successful
+            if (uploadQueue.every(f => f.status === 'success')) {
+                setTimeout(() => {
+                    location.reload(); // Reload to show new photos
+                }, 1000);
+            }
         }
 
         // Drag and drop for photo reordering
         let draggedElement = null;
+        let hasReordered = false;
+        let originalOrder = [];
+
+        // Store original order on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            originalOrder = Array.from(document.querySelectorAll('.photo-item')).map(el => el.dataset.photoNum);
+        });
 
         function handlePhotoStart(e) {
             draggedElement = e.target.closest('.photo-item');
@@ -372,6 +441,53 @@
             if (draggedElement) {
                 draggedElement.style.opacity = '1';
                 draggedElement = null;
+            }
+
+            // Show save button if order changed
+            if (hasReordered) {
+                document.getElementById('reorderActions').style.display = 'flex';
+                document.getElementById('reorderHint').style.display = 'none';
+            }
+        }
+
+        function cancelReorder() {
+            // Reload page to restore original order
+            location.reload();
+        }
+
+        async function savePhotoOrder() {
+            const photoItems = Array.from(document.querySelectorAll('.photo-item'));
+            const newOrder = photoItems.map(el => parseInt(el.dataset.photoNum));
+
+            try {
+                const formData = new FormData();
+                formData.append('placeId', placeId);
+                newOrder.forEach((num, index) => {
+                    formData.append(`order[${index}]`, num);
+                });
+
+                // Get anti-forgery token
+                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+                formData.append('__RequestVerificationToken', token);
+
+                const response = await fetch('/admin/photos/reorder', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    hasReordered = false;
+                    document.getElementById('reorderActions').style.display = 'none';
+                    document.getElementById('reorderHint').style.display = 'block';
+                    location.reload(); // Reload to show updated order
+                } else {
+                    alert('Failed to save order: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Reorder error:', error);
+                alert('Failed to save order. Please try again.');
             }
         }
 
@@ -393,22 +509,70 @@
                         } else {
                             this.parentNode.insertBefore(draggedElement, this);
                         }
+                        hasReordered = true;
                     }
-                });
-
-                item.addEventListener('drop', function(e) {
-                    e.preventDefault();
-                    // Save new order - implement later
-                    console.log('New order:', Array.from(document.querySelectorAll('.photo-item')).map(el => el.dataset.photoNum));
                 });
             });
         });
 
-        function deletePhoto(placeId, photoNum) {
-            if (confirm(`Are you sure you want to delete photo #${photoNum}?`)) {
-                // Implement delete - for now just log
-                console.log(`Delete photo ${photoNum} from place ${placeId}`);
-                alert('Delete functionality coming soon!');
+        async function toggleFavorite(placeId, photoNum, isFavorite) {
+            try {
+                const formData = new FormData();
+                formData.append('placeId', placeId);
+                formData.append('photoNum', photoNum);
+                formData.append('isFavorite', isFavorite);
+
+                // Get anti-forgery token
+                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+                formData.append('__RequestVerificationToken', token);
+
+                const response = await fetch('/admin/photos/favorite', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    location.reload(); // Reload to show updated favorite status
+                } else {
+                    alert('Failed to set favorite: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Favorite error:', error);
+                alert('Failed to set favorite. Please try again.');
+            }
+        }
+
+        async function deletePhoto(placeId, photoNum) {
+            if (!confirm(`Are you sure you want to delete photo #${photoNum}?`)) {
+                return;
+            }
+
+            try {
+                const formData = new FormData();
+                formData.append('placeId', placeId);
+                formData.append('photoNum', photoNum);
+
+                // Get anti-forgery token
+                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+                formData.append('__RequestVerificationToken', token);
+
+                const response = await fetch('/admin/photos/delete', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    location.reload(); // Reload to show updated photos
+                } else {
+                    alert('Failed to delete photo: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                alert('Failed to delete photo. Please try again.');
             }
         }
     </script>

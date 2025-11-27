@@ -18,12 +18,14 @@ type PlaceSummary = {
     Country: string
     Photos: int
     TripDates: TripDates
+    FavoritePhotoNum: int option
 }
 
 // Represents a single photo on the Place Detail page
 type PhotoDetail = {
     Num: int
     IsPortrait: bool
+    IsFavorite: bool
 }
 
 // Represents the data needed for the Place Detail Page

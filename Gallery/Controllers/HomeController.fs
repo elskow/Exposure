@@ -7,13 +7,13 @@ open Microsoft.Extensions.Logging
 open Gallery.Models
 open Gallery.Services
 
-type HomeController(logger: ILogger<HomeController>, dataService: DummyDataService) =
+type HomeController(logger: ILogger<HomeController>, placeService: PlaceService) =
     inherit Controller()
 
     // 1. Root Route
     [<Route("")>]
     member this.Index () =
-        let places = dataService.GetAllPlaces()
+        let places = placeService.GetAllPlacesAsync().Result
         this.View(places)
 
     [<Route("error")>]

@@ -14,3 +14,15 @@ node_modules/
 package-lock.json
 package.json
 .idea
+
+# SQLite Database
+Gallery/gallery.db
+Gallery/gallery.db-shm
+Gallery/gallery.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Uploaded Photos
+Gallery/wwwroot/images/places/*/
+!Gallery/wwwroot/images/places/.gitkeep

@@ -19,7 +19,7 @@
             <p class="text-[15px] leading-relaxed text-gray-900 font-serif">
                 <span class="font-medium text-black italic">Places, frozen in time.</span> Every location tells a story through light and shadow. A collection of destinations where moments were captured, memories preserved, and the essence of each place immortalized through the lens.
             </p>
-            
+
             <div class="text-[10px] text-gray-400 pt-1 flex flex-col gap-0.5 font-mono uppercase tracking-wide">
                 <span>Helmy Luqmanulhakim</span>
                 <span>Vol. MMXXV &mdash; Travel Archive</span>
@@ -32,13 +32,13 @@
             <thead>
                 <tr class="text-[9px] text-gray-300 uppercase tracking-widest font-mono border-b border-transparent">
                     <th class="pb-2 w-8 font-normal">#</th>
-                    
-                    <th class="pb-2 w-10 font-normal">Prev</th> 
-                    
-                    <th class="pb-2 font-normal"></th> 
-                    
+
+                    <th class="pb-2 w-10 font-normal">Prev</th>
+
+                    <th class="pb-2 font-normal"></th>
+
                     <th class="pb-2 text-right font-normal hidden sm:table-cell">Photos</th>
-                    
+
                     <th class="pb-2 text-right font-normal pl-6 hidden sm:table-cell">Country</th>
                 </tr>
             </thead>
@@ -49,10 +49,20 @@
                         <td class="py-4 md:py-3 text-gray-300 text-[10px] align-middle font-mono">
                             @place.Id.ToString("D2")
                         </td>
-                        
+
                         <td class="py-4 md:py-3 align-middle pr-3">
-                            <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px]">
-                                <div class="absolute inset-0 bg-gradient-to-tr from-gray-200 to-gray-300 opacity-60"></div>
+                            <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px] border border-black/5">
+                                @if (Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(place.FavoritePhotoNum))
+                                {
+                                    <img src="/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).jpg"
+                                         alt="@place.Name thumbnail"
+                                         class="w-full h-full object-cover"
+                                         onerror="this.src='/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).png'; this.onerror=function(){this.src='/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).jpeg'; this.onerror=null;};" />
+                                }
+                                else
+                                {
+                                    <div class="absolute inset-0 bg-gradient-to-tr from-gray-200 to-gray-300 opacity-60"></div>
+                                }
                             </div>
                         </td>
 
@@ -61,7 +71,7 @@
                                 <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black transition-colors">
                                     @place.Name
                                 </span>
-                                
+
                                 <span class="text-[9px] text-gray-400 mt-1.5 leading-none font-mono tracking-wide uppercase">
                                     @place.Location
                                 </span>

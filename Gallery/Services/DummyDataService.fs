@@ -48,6 +48,7 @@ type DummyDataService() =
                             Country = country
                             Photos = totalPhotos
                             TripDates = tripDates
+                            FavoritePhotoNum = if totalPhotos > 0 then Some(1) else None
                         }
                     )
                     |> List.ofSeq
@@ -82,6 +83,7 @@ type DummyDataService() =
                                 {
                                     Num = photoElement.GetProperty("num").GetInt32()
                                     IsPortrait = photoElement.GetProperty("isPortrait").GetBoolean()
+                                    IsFavorite = photoElement.GetProperty("num").GetInt32() = 1
                                 }
                             )
                             |> List.ofSeq

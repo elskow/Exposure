@@ -9,7 +9,12 @@
         <Compile Include="Models/ErrorViewModel.fs"/>
         <Compile Include="Models\GalleryModel.fs" />
         <Compile Include="Models\AdminModels.fs" />
+        <Compile Include="Models\Entities.fs" />
+        <Compile Include="Data\GalleryDbContext.fs" />
         <Compile Include="Services/DummyDataService.fs" />
+        <Compile Include="Services/PlaceService.fs" />
+        <Compile Include="Services/PhotoService.fs" />
+        <Compile Include="Data\SeedData.fs" />
         <Compile Include="Controllers/HomeController.fs"/>
         <Compile Include="Controllers/PlaceController.fs" />
         <Compile Include="Controllers/AdminController.fs" />
@@ -23,21 +28,12 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Content Include="Views\Admin\Index.cshtml" />
-      <Content Include="Views\Admin\Login.cshtml" />
-      <Content Include="Views\Admin\Create.cshtml" />
-      <Content Include="Views\Admin\Edit.cshtml" />
-      <Content Include="Views\Admin\Photos.cshtml" />
-      <Content Include="Views\Home\Index.cshtml" />
-      <Content Include="Views\Place\Detail.cshtml" />
-      <Content Include="Views\Place\Photo.cshtml" />
-      <Content Include="Views\Shared\_Layout.cshtml" />
-      <Content Include="Views\_ViewImports.cshtml" />
-      <Content Include="Views\_ViewStart.cshtml" />
-    </ItemGroup>
-
-    <ItemGroup>
         <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.9"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
     </ItemGroup>
 
     <ItemGroup>
