@@ -1,0 +1,38 @@
+@{
+    ViewData["Title"] = "404";
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Reenie+Beanie&display=swap" rel="stylesheet">
+</head>
+<body class="bg-[#FAFAFA] h-screen w-screen flex items-center justify-center overflow-hidden text-[#111] selection:bg-black selection:text-white">
+
+    <div class="text-center transform -rotate-2 select-none">
+
+        <h1 class="font-['Reenie_Beanie'] text-4xl md:text-5xl text-gray-800 tracking-wide leading-relaxed">
+            this frame is unexposed.
+        </h1>
+
+        <div class="mt-2">
+            <a href="@Url.Action("Index", "Home")"
+               class="font-['Reenie_Beanie'] text-3xl md:text-4xl text-gray-400 hover:text-black transition-colors duration-300 border-b-2 border-gray-300 hover:border-black pb-1 inline-block transform rotate-2">
+                rewind?
+            </a>
+        </div>
+
+    </div>
+
+    <div class="fixed inset-0 pointer-events-none opacity-[0.03]"
+         style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=');">
+    </div>
+
+</body>
+</html>

@@ -9,57 +9,63 @@ open Microsoft.EntityFrameworkCore
 open Gallery.Data
 open Gallery.Models
 
-type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment) =
+type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment, fileValidation: FileValidationService, pathValidation: PathValidationService, malwareScanning: MalwareScanningService) =
 
     let getPhotoDirectory(placeId: int) =
-        let photosPath = Path.Combine(webHostEnvironment.WebRootPath, "images", "places", placeId.ToString())
-        if not (Directory.Exists(photosPath)) then
-            Directory.CreateDirectory(photosPath) |> ignore
-        photosPath
+        match pathValidation.CreateDirectorySafely(placeId) with
+        | Ok path -> path
+        | Error msg -> failwith (sprintf "Path validation failed: %s" msg)
 
     // Upload photos for a place
     member this.UploadPhotosAsync(placeId: int, files: IFormFile list) =
         task {
-            let! place = context.Places.Include(fun p -> p.Photos :> obj).FirstOrDefaultAsync(fun p -> p.Id = placeId)
+            // Validate all files first before processing
+            match fileValidation.ValidateFiles(files) with
+            | Error errors ->
+                let errorMessage = String.Join("; ", errors |> List.toArray)
+                return Error errorMessage
+            | Ok _ ->
+                // Scan for malware
+                match! malwareScanning.ScanFilesAsync(files) with
+                | Error scanError ->
+                    return Error (sprintf "Malware scan failed: %s" scanError)
+                | Ok _ ->
+                    let! place = context.Places.Include(fun p -> p.Photos :> obj).FirstOrDefaultAsync(fun p -> p.Id = placeId)
 
-            if isNull place then
-                return Error "Place not found"
-            else
-                let photosDir = getPhotoDirectory(placeId)
-                let mutable uploadedCount = 0
-                let currentMaxNum =
-                    if place.Photos.Any() then
-                        place.Photos.Max(fun p -> p.PhotoNum)
+                    if isNull place then
+                        return Error "Place not found"
                     else
-                        0
+                        let photosDir = getPhotoDirectory(placeId)
+                        let mutable uploadedCount = 0
+                        let currentMaxNum =
+                            if place.Photos.Any() then
+                                place.Photos.Max(fun p -> p.PhotoNum)
+                            else
+                                0
 
-                for (index, file) in files |> List.mapi (fun i f -> (i, f)) do
-                    if file.Length > 0L then
-                        let photoNum = currentMaxNum + index + 1
-                        let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
-                        // Normalize extension to .jpg if it's .jpeg
-                        let normalizedExtension = if extension = ".jpeg" then ".jpg" else extension
-                        let fileName = sprintf "%d%s" photoNum normalizedExtension
-                        let filePath = Path.Combine(photosDir, fileName)
+                        for (index, file) in files |> List.mapi (fun i f -> (i, f)) do
+                            if file.Length > 0L then
+                                let photoNum = currentMaxNum + index + 1
+                                let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
+                                // Normalize extension to .jpg if it's .jpeg
+                                let normalizedExtension = if extension = ".jpeg" then ".jpg" else extension
+                                let fileName = sprintf "%d%s" photoNum normalizedExtension
+                                let filePath = Path.Combine(photosDir, fileName)
 
-                        use stream = new FileStream(filePath, FileMode.Create)
-                        do! file.CopyToAsync(stream)
+                                use stream = new FileStream(filePath, FileMode.Create)
+                                do! file.CopyToAsync(stream)
 
-                        // Determine if portrait based on image dimensions (simplified - check file extension for now)
-                        let isPortrait = false // TODO: Implement actual image dimension check
+                                let photo = Photo()
+                                photo.PlaceId <- placeId
+                                photo.PhotoNum <- photoNum
+                                photo.FileName <- fileName
+                                photo.CreatedAt <- DateTime.UtcNow
 
-                        let photo = Photo()
-                        photo.PlaceId <- placeId
-                        photo.PhotoNum <- photoNum
-                        photo.IsPortrait <- isPortrait
-                        photo.FileName <- fileName
-                        photo.CreatedAt <- DateTime.UtcNow
+                                context.Photos.Add(photo) |> ignore
+                                uploadedCount <- uploadedCount + 1
 
-                        context.Photos.Add(photo) |> ignore
-                        uploadedCount <- uploadedCount + 1
-
-                let! _ = context.SaveChangesAsync()
-                return Ok uploadedCount
+                        let! _ = context.SaveChangesAsync()
+                        return Ok uploadedCount
         }
 
     // Delete a photo
@@ -71,12 +77,13 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             if isNull photo then
                 return false
             else
-                // Delete file from filesystem
-                let photosDir = getPhotoDirectory(placeId)
-                let filePath = Path.Combine(photosDir, photo.FileName)
-
-                if File.Exists(filePath) then
-                    File.Delete(filePath)
+                // Delete file from filesystem with path validation
+                match pathValidation.GetValidatedExistingPhotoPath(placeId, photoNum, photo.FileName) with
+                | Ok filePath ->
+                    if File.Exists(filePath) then
+                        File.Delete(filePath)
+                | Error msg ->
+                    printfn "Path validation error during delete: %s" msg
 
                 // Delete from database
                 context.Photos.Remove(photo) |> ignore
@@ -92,17 +99,22 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                 for remainingPhoto in remainingPhotos do
                     let oldNum = remainingPhoto.PhotoNum
                     let newNum = oldNum - 1
+                    let extension = Path.GetExtension(remainingPhoto.FileName)
 
-                    // Rename file
-                    let oldPath = Path.Combine(photosDir, remainingPhoto.FileName)
-                    let newFileName = sprintf "%d%s" newNum (Path.GetExtension(remainingPhoto.FileName))
-                    let newPath = Path.Combine(photosDir, newFileName)
-
-                    if File.Exists(oldPath) then
-                        File.Move(oldPath, newPath)
-
-                    remainingPhoto.PhotoNum <- newNum
-                    remainingPhoto.FileName <- newFileName
+                    // Rename file with path validation
+                    match pathValidation.GetValidatedExistingPhotoPath(placeId, oldNum, remainingPhoto.FileName) with
+                    | Ok oldPath ->
+                        let newFileName = sprintf "%d%s" newNum extension
+                        match pathValidation.GetValidatedPhotoPath(placeId, newNum, extension) with
+                        | Ok newPath ->
+                            if File.Exists(oldPath) then
+                                File.Move(oldPath, newPath)
+                            remainingPhoto.PhotoNum <- newNum
+                            remainingPhoto.FileName <- newFileName
+                        | Error msg ->
+                            printfn "Path validation error for new path: %s" msg
+                    | Error msg ->
+                        printfn "Path validation error for old path: %s" msg
 
                 let! _ = context.SaveChangesAsync()
                 return true
@@ -128,27 +140,35 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     let photo = photos.FirstOrDefault(fun p -> p.PhotoNum = oldNum)
 
                     if not (isNull photo) then
-                        let oldPath = Path.Combine(photosDir, photo.FileName)
                         let extension = Path.GetExtension(photo.FileName)
-                        let tempPath = Path.Combine(photosDir, sprintf "temp_%d%s" newNum extension)
 
-                        if File.Exists(oldPath) then
-                            File.Move(oldPath, tempPath)
-
-                        tempFiles.Add((tempPath, newNum, extension))
+                        match pathValidation.GetValidatedExistingPhotoPath(placeId, oldNum, photo.FileName) with
+                        | Ok oldPath ->
+                            let tempFileName = sprintf "temp_%d%s" newNum extension
+                            match pathValidation.GetValidatedPhotoPath(placeId, 9000 + newNum, extension) with
+                            | Ok tempPath ->
+                                if File.Exists(oldPath) then
+                                    File.Move(oldPath, tempPath)
+                                tempFiles.Add((tempPath, newNum, extension))
+                            | Error msg ->
+                                printfn "Path validation error for temp path: %s" msg
+                        | Error msg ->
+                            printfn "Path validation error for old path: %s" msg
 
                 // Rename temp files to final names
                 for (tempPath, newNum, extension) in tempFiles do
                     let finalFileName = sprintf "%d%s" newNum extension
-                    let finalPath = Path.Combine(photosDir, finalFileName)
+                    match pathValidation.GetValidatedPhotoPath(placeId, newNum, extension) with
+                    | Ok finalPath ->
+                        if File.Exists(tempPath) then
+                            File.Move(tempPath, finalPath)
 
-                    if File.Exists(tempPath) then
-                        File.Move(tempPath, finalPath)
-
-                    let photo = photos.FirstOrDefault(fun p -> p.FileName.Contains(sprintf "temp_%d" newNum))
-                    if not (isNull photo) then
-                        photo.PhotoNum <- newNum
-                        photo.FileName <- finalFileName
+                        let photo = photos.FirstOrDefault(fun p -> p.FileName.Contains(sprintf "temp_%d" newNum))
+                        if not (isNull photo) then
+                            photo.PhotoNum <- newNum
+                            photo.FileName <- finalFileName
+                    | Error msg ->
+                        printfn "Path validation error for final path: %s" msg
 
                 let! _ = context.SaveChangesAsync()
                 return true
@@ -169,12 +189,11 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
     // Delete all photos for a place (used when deleting a place)
     member this.DeleteAllPhotosForPlaceAsync(placeId: int) =
         task {
-            let photosDir = getPhotoDirectory(placeId)
-
-            if Directory.Exists(photosDir) then
-                Directory.Delete(photosDir, true)
-
-            return ()
+            match pathValidation.DeleteDirectorySafely(placeId) with
+            | Ok _ -> return ()
+            | Error msg ->
+                printfn "Failed to delete photos directory: %s" msg
+                return ()
         }
 
     // Set a photo as favorite (and unset others for the same place)

@@ -7,15 +7,12 @@ open Microsoft.AspNetCore.Authentication
 open Microsoft.AspNetCore.Authentication.Cookies
 open Microsoft.AspNetCore.Authorization
 open Microsoft.AspNetCore.Mvc
+open Microsoft.Extensions.Configuration
 open Gallery.Models
 open Gallery.Services
 
-type AdminController(placeService: PlaceService, photoService: PhotoService) =
+type AdminController(placeService: PlaceService, photoService: PhotoService, authService: AuthenticationService, pathValidation: PathValidationService, configuration: IConfiguration) =
     inherit Controller()
-
-    // Simple admin credentials (in production, use proper password hashing)
-    let adminUsername = "admin"
-    let adminPassword = "admin123"
 
     // GET: /admin
     [<Route("/admin")>]
@@ -50,13 +47,16 @@ type AdminController(placeService: PlaceService, photoService: PhotoService) =
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
-    member this.Create(name: string, location: string, country: string, startDate: string, endDate: string) =
-        let endDateOpt =
-            if System.String.IsNullOrWhiteSpace(endDate) then None
-            else Some(endDate)
+    member this.Create(model: PlaceFormViewModel) =
+        if not this.ModelState.IsValid then
+            this.View(model) :> IActionResult
+        else
+            let endDateOpt =
+                if System.String.IsNullOrWhiteSpace(model.EndDate) then None
+                else Some(model.EndDate)
 
-        let placeId = placeService.CreatePlaceAsync(name, location, country, startDate, endDateOpt).Result
-        this.RedirectToAction("Edit", {| id = placeId |}) :> IActionResult
+            let placeId = placeService.CreatePlaceAsync(model.Name, model.Location, model.Country, model.StartDate, endDateOpt).Result
+            this.RedirectToAction("Edit", {| id = placeId |}) :> IActionResult
 
     // GET: /admin/login
     [<Route("/admin/login")>]
@@ -73,38 +73,51 @@ type AdminController(placeService: PlaceService, photoService: PhotoService) =
     [<HttpPost>]
     [<AllowAnonymous>]
     [<ValidateAntiForgeryToken>]
-    member this.Login(model: LoginViewModel, returnUrl: string) =
-        if this.ModelState.IsValid then
-            // Simple credential check (in production, use proper password verification)
-            if model.Username = adminUsername && model.Password = adminPassword then
-                let claims =
-                    [ Claim(ClaimTypes.Name, model.Username)
-                      Claim(ClaimTypes.Role, "Admin") ]
+    member this.Login(model: LoginViewModel, returnUrl: string, totpCode: string) =
+        task {
+            if this.ModelState.IsValid then
+                let authMode = configuration.["Authentication:Mode"]
 
-                let claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)
-                let authProperties = AuthenticationProperties()
-
-                // Configure persistent cookie if "Remember Me" is checked
-                if model.RememberMe then
-                    authProperties.IsPersistent <- true
-                    authProperties.ExpiresUtc <- Nullable(DateTimeOffset.UtcNow.AddDays(30))
-
-                let result = this.HttpContext.SignInAsync(
-                    CookieAuthenticationDefaults.AuthenticationScheme,
-                    new ClaimsPrincipal(claimsIdentity),
-                    authProperties
-                )
-
-                // Redirect to return URL or dashboard
-                if not (String.IsNullOrEmpty(returnUrl)) && this.Url.IsLocalUrl(returnUrl) then
-                    this.Redirect(returnUrl) :> IActionResult
+                if authMode = "OIDC" then
+                    // OIDC handled by middleware, shouldn't reach here
+                    return this.RedirectToAction("Index") :> IActionResult
                 else
-                    this.RedirectToAction("Index") :> IActionResult
+                    // Local authentication with TOTP
+                    let totpCodeOpt = if String.IsNullOrWhiteSpace(totpCode) then None else Some(totpCode)
+                    let! authResult = authService.AuthenticateAsync(model.Username, model.Password, totpCodeOpt)
+
+                    match authResult with
+                    | Ok user ->
+                        let claims =
+                            [ Claim(ClaimTypes.Name, user.Username)
+                              Claim(ClaimTypes.NameIdentifier, user.Id.ToString())
+                              Claim(ClaimTypes.Role, "Admin") ]
+
+                        let claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)
+                        let authProperties = AuthenticationProperties()
+
+                        // Configure persistent cookie if "Remember Me" is checked
+                        if model.RememberMe then
+                            authProperties.IsPersistent <- true
+                            authProperties.ExpiresUtc <- Nullable(DateTimeOffset.UtcNow.AddDays(30))
+
+                        do! this.HttpContext.SignInAsync(
+                            CookieAuthenticationDefaults.AuthenticationScheme,
+                            new ClaimsPrincipal(claimsIdentity),
+                            authProperties
+                        )
+
+                        // Redirect to return URL or dashboard
+                        if not (String.IsNullOrEmpty(returnUrl)) && this.Url.IsLocalUrl(returnUrl) then
+                            return this.Redirect(returnUrl) :> IActionResult
+                        else
+                            return this.RedirectToAction("Index") :> IActionResult
+                    | Error msg ->
+                        this.ModelState.AddModelError("", msg)
+                        return this.View(model) :> IActionResult
             else
-                this.ModelState.AddModelError("", "Invalid username or password")
-                this.View(model) :> IActionResult
-        else
-            this.View(model) :> IActionResult
+                return this.View(model) :> IActionResult
+        }
 
     // GET: /admin/edit/{id}
     [<Route("/admin/edit/{id}")>]
@@ -131,16 +144,32 @@ type AdminController(placeService: PlaceService, photoService: PhotoService) =
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
-    member this.Update(id: int, name: string, location: string, country: string, startDate: string, endDate: string) =
-        let endDateOpt =
-            if System.String.IsNullOrWhiteSpace(endDate) then None
-            else Some(endDate)
-
-        let success = placeService.UpdatePlaceAsync(id, name, location, country, startDate, endDateOpt).Result
-        if success then
-            this.RedirectToAction("Index") :> IActionResult
+    member this.Update(id: int, model: PlaceFormViewModel) =
+        if not this.ModelState.IsValid then
+            let placeDetailOpt = placeService.GetPlaceByIdAsync(id).Result
+            match placeDetailOpt with
+            | Some placeDetail ->
+                let place = {
+                    Id = placeDetail.PlaceId
+                    Name = placeDetail.Name
+                    Location = placeDetail.Location
+                    Country = placeDetail.Country
+                    Photos = placeDetail.TotalPhotos
+                    TripDates = placeDetail.TripDates
+                    FavoritePhotoNum = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.Num)
+                }
+                this.View("Edit", place) :> IActionResult
+            | None -> this.NotFound() :> IActionResult
         else
-            this.NotFound() :> IActionResult
+            let endDateOpt =
+                if System.String.IsNullOrWhiteSpace(model.EndDate) then None
+                else Some(model.EndDate)
+
+            let success = placeService.UpdatePlaceAsync(id, model.Name, model.Location, model.Country, model.StartDate, endDateOpt).Result
+            if success then
+                this.RedirectToAction("Index") :> IActionResult
+            else
+                this.NotFound() :> IActionResult
 
     // POST: /admin/delete
     [<Route("/admin/delete")>]
@@ -217,6 +246,66 @@ type AdminController(placeService: PlaceService, photoService: PhotoService) =
             this.Json({| success = true; message = (if isFavorite then "Photo set as favorite" else "Favorite removed") |}) :> IActionResult
         else
             this.NotFound({| success = false; message = "Photo not found" |}) :> IActionResult
+
+    // GET: /admin/totp-setup
+    [<Route("/admin/totp-setup")>]
+    [<Authorize>]
+    member this.TotpSetup() =
+        task {
+            let username = this.User.Identity.Name
+            let! result = authService.EnableTotpAsync(username)
+
+            match result with
+            | Ok secret ->
+                let qrCodeBytes = authService.GenerateTotpQrCode(username, secret, "Gallery Admin")
+                let qrCodeBase64 = Convert.ToBase64String(qrCodeBytes)
+                this.ViewData.["TotpSecret"] <- secret
+                return this.View(qrCodeBase64) :> IActionResult
+            | Error msg ->
+                this.TempData.["Error"] <- msg
+                return this.RedirectToAction("Index") :> IActionResult
+        }
+
+    // POST: /admin/verify-totp
+    [<Route("/admin/verify-totp")>]
+    [<HttpPost>]
+    [<Authorize>]
+    [<ValidateAntiForgeryToken>]
+    member this.VerifyTotp(code: string) =
+        task {
+            let username = this.User.Identity.Name
+            let! userOpt = authService.GetAdminUserAsync(username)
+
+            match userOpt with
+            | Some user when not (String.IsNullOrEmpty(user.TotpSecret)) ->
+                if authService.VerifyTotpCode(user.TotpSecret, code) then
+                    this.TempData.["Success"] <- "Two-factor authentication enabled successfully!"
+                    return this.RedirectToAction("Index") :> IActionResult
+                else
+                    this.TempData.["Error"] <- "Invalid code. Please try again."
+                    return this.RedirectToAction("TotpSetup") :> IActionResult
+            | _ ->
+                this.TempData.["Error"] <- "TOTP setup not found."
+                return this.RedirectToAction("Index") :> IActionResult
+        }
+
+    // POST: /admin/disable-totp
+    [<Route("/admin/disable-totp")>]
+    [<HttpPost>]
+    [<Authorize>]
+    [<ValidateAntiForgeryToken>]
+    member this.DisableTotp() =
+        task {
+            let username = this.User.Identity.Name
+            let! success = authService.DisableTotpAsync(username)
+
+            if success then
+                this.TempData.["Success"] <- "Two-factor authentication disabled."
+            else
+                this.TempData.["Error"] <- "Failed to disable two-factor authentication."
+
+            return this.RedirectToAction("Index") :> IActionResult
+        }
 
     // POST: /admin/logout
     [<Route("/admin/logout")>]

@@ -1,0 +1,153 @@
+@model string
+@{
+    ViewData["Title"] = "TOTP Setup";
+    Layout = null;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .font-mono { font-family: 'DM Mono', monospace; }
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-white text-[#111] min-h-screen p-6 md:p-12 selection:bg-black selection:text-white antialiased">
+
+    <div class="max-w-2xl mx-auto">
+
+        <header class="border-b border-gray-100 pb-6 mb-8">
+            <h1 class="text-2xl font-medium tracking-tight text-black">Two-Factor Authentication Setup</h1>
+            <p class="text-gray-500 mt-1 text-sm">Secure your account with Google Authenticator</p>
+        </header>
+
+        <div class="space-y-8">
+
+            <!-- Step 1 -->
+            <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-8 h-8 bg-black text-white rounded-full flex items-center justify-center text-sm font-medium">
+                        1
+                    </div>
+                    <div class="flex-1">
+                        <h2 class="text-lg font-medium text-gray-900 mb-2">Install Google Authenticator</h2>
+                        <p class="text-sm text-gray-600 mb-3">
+                            Download and install Google Authenticator on your mobile device:
+                        </p>
+                        <div class="flex gap-3">
+                            <a href="https://apps.apple.com/app/google-authenticator/id388497605" target="_blank"
+                               class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                                <svg class="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09l.01-.01zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+                                </svg>
+                                iOS
+                            </a>
+                            <a href="https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2" target="_blank"
+                               class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+                                <svg class="mr-2 h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M3 20.5v-17c0-.59.34-1.11.84-1.35L13.69 12l-9.85 9.85c-.5-.24-.84-.76-.84-1.35zm13.81-5.38L6.05 21.34l8.49-4.77 2.27-1.45zm2.54-1.62c.42-.26.65-.66.65-1.13 0-.47-.23-.87-.65-1.13L17.73 10 15.46 8.55 6.05 2.66l10.76 6.05 2.54 1.59zm-2.54 1.62l-2.27 1.45-8.49 4.77 10.76-6.22z"/>
+                                </svg>
+                                Android
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-8 h-8 bg-black text-white rounded-full flex items-center justify-center text-sm font-medium">
+                        2
+                    </div>
+                    <div class="flex-1">
+                        <h2 class="text-lg font-medium text-gray-900 mb-2">Scan QR Code</h2>
+                        <p class="text-sm text-gray-600 mb-4">
+                            Open Google Authenticator and scan this QR code:
+                        </p>
+                        <div class="bg-white p-6 rounded-lg border border-gray-300 inline-block">
+                            <img src="data:image/png;base64,@Model" alt="TOTP QR Code" class="w-48 h-48" />
+                        </div>
+                        <p class="text-xs text-gray-500 mt-4">
+                            Can't scan? Use this key manually: <code class="bg-gray-200 px-2 py-1 rounded font-mono text-xs">@ViewData["TotpSecret"]</code>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                <div class="flex items-start gap-4">
+                    <div class="flex-shrink-0 w-8 h-8 bg-black text-white rounded-full flex items-center justify-center text-sm font-medium">
+                        3
+                    </div>
+                    <div class="flex-1">
+                        <h2 class="text-lg font-medium text-gray-900 mb-2">Verify Setup</h2>
+                        <p class="text-sm text-gray-600 mb-4">
+                            Enter the 6-digit code from Google Authenticator to complete setup:
+                        </p>
+                        <form asp-action="VerifyTotp" method="post" class="space-y-4">
+                            @Html.AntiForgeryToken()
+                            <div>
+                                <input type="text" name="code" id="code" maxlength="6" pattern="[0-9]{6}"
+                                       class="block w-full px-4 py-3 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-black focus:border-black text-center text-2xl font-mono tracking-widest"
+                                       placeholder="000000" required autofocus>
+                            </div>
+                            <div class="flex gap-3">
+                                <a href="/admin"
+                                   class="flex-1 inline-flex justify-center py-3 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
+                                    Cancel
+                                </a>
+                                <button type="submit"
+                                        class="flex-1 inline-flex justify-center py-3 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
+                                    Verify & Enable
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Security Warning -->
+            <div class="bg-amber-50 rounded-lg p-6 border border-amber-200">
+                <div class="flex items-start gap-3">
+                    <svg class="h-5 w-5 text-amber-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                    </svg>
+                    <div>
+                        <h3 class="text-sm font-medium text-amber-900 mb-1">Important Security Note</h3>
+                        <p class="text-xs text-amber-700">
+                            Save your backup codes in a secure location. If you lose access to your authenticator app,
+                            you won't be able to sign in without these codes.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <script>
+        // Auto-submit when 6 digits are entered
+        document.getElementById('code').addEventListener('input', function(e) {
+            const value = e.target.value.replace(/\D/g, '');
+            e.target.value = value;
+
+            if (value.length === 6) {
+                // Auto-submit after a brief delay
+                setTimeout(() => {
+                    e.target.form.submit();
+                }, 300);
+            }
+        });
+    </script>
+
+</body>
+</html>

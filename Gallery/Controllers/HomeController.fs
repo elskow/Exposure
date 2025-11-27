@@ -25,3 +25,9 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
             else
                 Activity.Current.Id
         this.View({ RequestId = reqId })
+
+    [<Route("404")>]
+    [<ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)>]
+    member this.NotFound () =
+        this.HttpContext.Response.StatusCode <- 404
+        this.View("NotFound")

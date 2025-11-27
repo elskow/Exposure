@@ -82,7 +82,6 @@ type DummyDataService() =
                             |> Seq.map (fun photoElement ->
                                 {
                                     Num = photoElement.GetProperty("num").GetInt32()
-                                    IsPortrait = photoElement.GetProperty("isPortrait").GetBoolean()
                                     IsFavorite = photoElement.GetProperty("num").GetInt32() = 1
                                 }
                             )

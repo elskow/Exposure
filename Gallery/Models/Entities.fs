@@ -50,8 +50,6 @@ and [<AllowNullLiteral>]
     [<Required>]
     member val PhotoNum = 0 with get, set
 
-    member val IsPortrait = false with get, set
-
     member val IsFavorite = false with get, set
 
     [<Required>]
@@ -63,3 +61,26 @@ and [<AllowNullLiteral>]
     // Navigation property
     [<ForeignKey("PlaceId")>]
     member val Place : Place = null with get, set
+
+and [<AllowNullLiteral>]
+    [<Table("AdminUsers")>]
+    AdminUser() =
+    [<Key>]
+    member val Id = 0 with get, set
+
+    [<Required>]
+    [<MaxLength(100)>]
+    member val Username = "" with get, set
+
+    [<Required>]
+    [<MaxLength(255)>]
+    member val PasswordHash = "" with get, set
+
+    [<MaxLength(100)>]
+    member val TotpSecret : string = null with get, set
+
+    member val TotpEnabled = false with get, set
+
+    member val CreatedAt = DateTime.UtcNow with get, set
+
+    member val LastLoginAt : DateTime = DateTime.MinValue with get, set

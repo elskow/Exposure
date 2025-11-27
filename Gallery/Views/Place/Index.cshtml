@@ -17,7 +17,7 @@
                     <div class="flex flex-col group cursor-pointer transition-transform active:scale-95 duration-150 ease-out"
                          onclick="location.href='@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = photo.Num })'">
 
-                        <div class="w-full relative overflow-hidden border border-black/5 @(photo.IsPortrait ? "aspect-[2/3]" : "aspect-[3/2]")">
+                        <div class="w-full relative overflow-hidden border border-black/5 aspect-[3/2]">
                             <img src="/images/places/@(Model.PlaceId)/@(photo.Num).jpg"
                                  alt="Photo @photo.Num"
                                  class="absolute inset-0 w-full h-full object-cover"

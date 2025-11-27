@@ -105,7 +105,6 @@ type PlaceService(context: GalleryDbContext) =
                         .OrderBy(fun ph -> ph.PhotoNum :> obj)
                         .Select(fun ph -> {
                             Num = ph.PhotoNum
-                            IsPortrait = ph.IsPortrait
                             IsFavorite = ph.IsFavorite
                         })
                         |> List.ofSeq

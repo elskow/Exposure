@@ -12,6 +12,9 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
     [<DefaultValue>]
     val mutable private photos: DbSet<Photo>
 
+    [<DefaultValue>]
+    val mutable private adminUsers: DbSet<AdminUser>
+
     member this.Places
         with get() = this.places
         and set value = this.places <- value
@@ -19,6 +22,10 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
     member this.Photos
         with get() = this.photos
         and set value = this.photos <- value
+
+    member this.AdminUsers
+        with get() = this.adminUsers
+        and set value = this.adminUsers <- value
 
     override _.OnModelCreating(modelBuilder: ModelBuilder) =
         // Configure Place -> Photo relationship
@@ -32,5 +39,11 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
         // Create unique index on PlaceId + PhotoNum
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "PhotoNum")
+            .IsUnique()
+            |> ignore
+
+        // Configure AdminUser
+        modelBuilder.Entity<AdminUser>()
+            .HasIndex("Username")
             .IsUnique()
             |> ignore

@@ -24,7 +24,6 @@ type PlaceSummary = {
 // Represents a single photo on the Place Detail page
 type PhotoDetail = {
     Num: int
-    IsPortrait: bool
     IsFavorite: bool
 }
 
