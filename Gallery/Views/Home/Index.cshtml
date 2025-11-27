@@ -1,12 +1,83 @@
-@{
-    ViewData["Title"] = "Home Page";
+﻿@{
+    ViewData["Title"] = "Visual Log";
+    
+    // Helmy's Original Data
+    var rolls = new[]
+    {
+        new { Id = 1, Film = "Classic Chrome", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 24 },
+        new { Id = 2, Film = "Acros+R Filter", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 12 },
+        new { Id = 3, Film = "Provia Standard", Camera = "Fujifilm X-A10", Lens="XC 16-50mm", Frames = 45 },
+        new { Id = 4, Film = "Kodak Portra 400", Camera = "Analog SLR", Lens="50mm f/1.8", Frames = 36 },
+        new { Id = 5, Film = "Godox Flash Test", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 8 },
+        new { Id = 6, Film = "Velvia 50", Camera = "Fujifilm X-A10", Lens="Manual Focus", Frames = 19 },
+    };
 }
 
-<div class="text-center">
-    <h1 class="display-4 text-3xl font-bold text-blue-600 underline">Welcome</h1>
-    <p class="mt-4 text-lg text-gray-700">Learn about <a href="https://learn.microsoft.com/aspnet/core" class="text-blue-500 hover:text-blue-700 underline">building Web apps with ASP.NET Core</a>.</p>
-    <div class="mt-8 p-6 bg-gradient-to-r from-purple-400 to-pink-400 text-white rounded-lg shadow-lg">
-        <h2 class="text-2xl font-semibold mb-2">Tailwind CSS is Working!</h2>
-        <p>This styled box demonstrates that Tailwind CSS utilities are being applied correctly.</p>
+<div class="max-w-xl mx-auto px-6 text-[#111] mt-32">
+
+    <div class="mb-12 mt-6">
+        <div class="mb-5 text-black opacity-70">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10" stroke-width="0.8"/>
+              <path d="M12 2V22" stroke-width="0.5"/>
+              <circle cx="12" cy="12" r="3" fill="currentColor"/>
+            </svg>
+        </div>
+
+        <div class="max-w-xl space-y-3">
+            <p class="text-[15px] leading-relaxed text-gray-900 font-serif">
+                <span class="font-medium text-black italic">Light, suspended in gelatin.</span> The mechanical eye observing the organic chaos. A study of grain as texture and memory as artifact. Fragments of the city that refuses to sleep, rendered in silver and silicon.
+            </p>
+            
+            <div class="text-[10px] text-gray-400 pt-1 flex flex-col gap-0.5 font-mono uppercase tracking-wide">
+                <span>Helmy Luqmanulhakim</span>
+                <span>Vol. MMXXV &mdash; Archive 06</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="w-full">
+        <table class="w-full text-left">
+            <thead>
+                <tr class="text-[9px] text-gray-300 uppercase tracking-widest font-mono border-b border-transparent">
+                    <th class="pb-2 w-8 font-normal">#</th>
+                    <th class="pb-2 w-10 font-normal">Prev</th> 
+                    <th class="pb-2 font-normal"></th> 
+                    <th class="pb-2 text-right font-normal">Exp.</th>
+                    <th class="pb-2 text-right font-normal pl-6">Glass</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50/60">
+                @foreach (var roll in rolls)
+                {
+                    <tr class="group hover:bg-gray-50 transition-colors duration-200 cursor-pointer">
+                        <td class="py-3 text-gray-300 text-[10px] align-middle font-mono">
+                            @roll.Id.ToString("D2")
+                        </td>
+                        
+                        <td class="py-3 align-middle pr-3">
+                            <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px]">
+                                <div class="absolute inset-0 bg-gradient-to-tr from-gray-200 to-gray-300 opacity-60"></div>
+                            </div>
+                        </td>
+
+                        <td class="py-3 align-middle">
+                            <div class="flex flex-col justify-center">
+                                <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black transition-colors">@roll.Film</span>
+                                <span class="text-[9px] text-gray-400 mt-1.5 leading-none font-mono tracking-wide uppercase">@roll.Camera</span>
+                            </div>
+                        </td>
+
+                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle font-mono">
+                            @roll.Frames
+                        </td>
+
+                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle pl-6 font-mono uppercase tracking-wide group-hover:text-gray-600">
+                            @roll.Lens
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
     </div>
 </div>

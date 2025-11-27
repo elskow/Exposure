@@ -1,42 +1,79 @@
+﻿@{
+// Helper function to convert the current year to Roman Numerals
+string ToRoman(int number)
+{
+if (number < 1) return string.Empty;
+if (number >= 1000) return "M" + ToRoman(number - 1000);
+if (number >= 900) return "CM" + ToRoman(number - 900);
+if (number >= 500) return "D" + ToRoman(number - 500);
+if (number >= 400) return "CD" + ToRoman(number - 400);
+if (number >= 100) return "C" + ToRoman(number - 100);
+if (number >= 90) return "XC" + ToRoman(number - 90);
+if (number >= 50) return "L" + ToRoman(number - 50);
+if (number >= 40) return "XL" + ToRoman(number - 40);
+if (number >= 10) return "X" + ToRoman(number - 10);
+if (number >= 9) return "IX" + ToRoman(number - 9);
+if (number >= 5) return "V" + ToRoman(number - 5);
+if (number >= 4) return "IV" + ToRoman(number - 4);
+if (number >= 1) return "I" + ToRoman(number - 1);
+return string.Empty;
+}
+
+var currentYear = ToRoman(DateTime.Now.Year);
+}
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>@ViewData["Title"] - Gallery</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
 
-    <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true"/>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true" />
+
+    <style>
+        :root {
+            --font-serif: 'Lora', serif;
+            --font-mono: 'DM Mono', monospace;
+        }
+
+        body {
+            font-family: var(--font-serif);
+            /* Lora is very legible, so we can use standard sizing */
+            font-size: 1.05rem;
+            line-height: 1.7;
+            /* Lighter tracking gives it room to breathe */
+            letter-spacing: 0.01em;
+        }
+
+        .font-mono {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        /* Make the headers feel softer */
+        h1, h2, h3, .italic {
+            font-style: italic;
+        }
+
+        html { scroll-behavior: smooth; }
+    </style>
 </head>
-<body>
-<header>
-    <nav class="bg-white border-b border-gray-200 shadow-sm mb-3">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
-                <div class="flex">
-                    <a class="flex items-center text-xl font-bold text-gray-900" asp-area="" asp-controller="Home" asp-action="Index">Gallery</a>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <a class="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
-                    <a class="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
-                </div>
-            </div>
-        </div>
-    </nav>
-</header>
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-    <main role="main">
-        @RenderBody()
-    </main>
-</div>
+<body class="bg-[#FCFCFA] text-[#222] antialiased selection:bg-gray-900 selection:text-white flex flex-col min-h-screen">
 
-<footer class="border-t border-gray-200 bg-gray-50 text-gray-600 mt-12">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        &copy; 2025 - Gallery - <a asp-area="" asp-controller="Home" asp-action="Privacy" class="text-gray-600 hover:text-gray-900">Privacy</a>
-    </div>
-</footer>
+<main role="main" class="flex-grow w-full">
+    @RenderBody()
+</main>
 
 <script src="~/js/site.js" asp-append-version="true"></script>
-
 @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
