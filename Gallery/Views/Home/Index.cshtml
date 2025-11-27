@@ -5,7 +5,7 @@
     ViewData["Title"] = "Visual Log";
 }
 
-<div class="max-w-xl mx-auto px-6 text-[#111] mt-32">
+<div class="max-w-xl mx-auto px-6 text-[#111] mt-12 md:mt-32 mb-24">
 
     <div class="mb-12 mt-6">
         <div class="mb-5 text-black opacity-70">
@@ -33,38 +33,51 @@
             <thead>
                 <tr class="text-[9px] text-gray-300 uppercase tracking-widest font-mono border-b border-transparent">
                     <th class="pb-2 w-8 font-normal">#</th>
+                    
                     <th class="pb-2 w-10 font-normal">Prev</th> 
+                    
                     <th class="pb-2 font-normal"></th> 
-                    <th class="pb-2 text-right font-normal">Exp.</th>
-                    <th class="pb-2 text-right font-normal pl-6">Glass</th>
+                    
+                    <th class="pb-2 text-right font-normal hidden sm:table-cell">Exp.</th>
+                    
+                    <th class="pb-2 text-right font-normal pl-6 hidden sm:table-cell">Glass</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-50/60">
                 @foreach (var roll in Model)
                 {
                     <tr onclick="location.href='@Url.Action("Index", "Roll", new { id = roll.Id })'" class="group hover:bg-gray-50 transition-colors duration-200 cursor-pointer">
-                        <td class="py-3 text-gray-300 text-[10px] align-middle font-mono">
+                        <td class="py-4 md:py-3 text-gray-300 text-[10px] align-middle font-mono">
                             @roll.Id.ToString("D2")
                         </td>
                         
-                        <td class="py-3 align-middle pr-3">
+                        <td class="py-4 md:py-3 align-middle pr-3">
                             <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px]">
                                 <div class="absolute inset-0 bg-gradient-to-tr from-gray-200 to-gray-300 opacity-60"></div>
                             </div>
                         </td>
 
-                        <td class="py-3 align-middle">
+                        <td class="py-4 md:py-3 align-middle">
                             <div class="flex flex-col justify-center">
-                                <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black transition-colors">@roll.Film</span>
-                                <span class="text-[9px] text-gray-400 mt-1.5 leading-none font-mono tracking-wide uppercase">@roll.Camera</span>
+                                <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black transition-colors">
+                                    @roll.Film
+                                </span>
+                                
+                                <span class="text-[9px] text-gray-400 mt-1.5 leading-none font-mono tracking-wide uppercase">
+                                    @roll.Camera
+                                </span>
+
+                                <span class="sm:hidden text-[9px] text-gray-300 mt-1 leading-none font-mono tracking-wide uppercase">
+                                    @roll.Lens
+                                </span>
                             </div>
                         </td>
 
-                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle font-mono">
+                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle font-mono hidden sm:table-cell">
                             @roll.Frames
                         </td>
 
-                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle pl-6 font-mono uppercase tracking-wide group-hover:text-gray-600">
+                        <td class="py-3 text-right text-gray-400 text-[10px] align-middle pl-6 font-mono uppercase tracking-wide group-hover:text-gray-600 hidden sm:table-cell">
                             @roll.Lens
                         </td>
                     </tr>

@@ -1,0 +1,108 @@
+@using Gallery.Models
+@model FrameViewModel
+
+@{
+    ViewData["Title"] = "Frame " + Model.FrameNum;
+    Layout = null; 
+
+    bool isPortrait = Model.FrameNum % 3 == 0 || Model.FrameNum % 5 == 0;
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'DM Mono', monospace; }
+        /* Hide scrollbar for immersive feel */
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-[#F0F0F0] text-[#111] h-screen h-[100dvh] w-screen flex flex-col overflow-hidden selection:bg-black selection:text-white">
+
+    <header class="flex justify-between items-center px-5 py-6 md:px-12 md:py-8 z-10 shrink-0">
+        
+        <a href="@Url.Action("Index", "Roll", new { id = Model.RollId })" 
+           class="group inline-flex items-center gap-3 text-gray-400 hover:text-black transition-colors duration-300">
+            <span class="text-[10px] font-mono tracking-[0.2em] uppercase pt-px">Close</span>
+        </a>
+
+        <div class="flex gap-6 md:gap-8 text-gray-400">
+            @if (Model.PrevFrame.HasValue)
+            {
+                <a href="@Url.Action("Detail", "Roll", new { rollId = Model.RollId, frameNum = Model.PrevFrame.Value })" 
+                   class="p-2 -mr-2 hover:text-black transition-colors duration-300">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                </a>
+            }
+            else
+            {
+                <span class="p-2 -mr-2 opacity-20 cursor-default">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+                </span>
+            }
+
+            @if (Model.NextFrame.HasValue)
+            {
+                <a href="@Url.Action("Detail", "Roll", new { rollId = Model.RollId, frameNum = Model.NextFrame.Value })" 
+                   class="p-2 -mr-2 hover:text-black transition-colors duration-300">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </a>
+            }
+            else
+            {
+                <span class="p-2 -mr-2 opacity-20 cursor-default">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                </span>
+            }
+        </div>
+    </header>
+
+    <main class="flex-grow flex items-center justify-center p-4 md:p-6 relative w-full">
+        
+        <div class="bg-white shadow-[0_20px_40px_-12px_rgba(0,0,0,0.15)] md:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.15)]
+                    p-2.5 pb-12 md:p-4 md:pb-24 
+                    transform transition-transform duration-500">
+            
+            <div class="relative overflow-hidden bg-neutral-100 border border-black/5
+                        @(isPortrait 
+                            ? "h-[55vh] md:h-[65vh] aspect-[2/3]" 
+                            : "w-[85vw] md:w-auto md:h-[60vh] aspect-[3/2]")">
+                
+                <div class="absolute inset-0 shadow-[inset_0_0_20px_rgba(0,0,0,0.05)] pointer-events-none z-10"></div>
+
+                <div class="w-full h-full relative">
+                    <div class="absolute inset-0 bg-gradient-to-b from-black/5 to-black/20"></div>
+                    <div class="absolute inset-0 opacity-20 mix-blend-overlay" 
+                         style="background-image: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjAuMSIvPgo8L3N2Zz4=');">
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <footer class="flex justify-between items-end px-5 py-6 md:px-12 md:py-8 text-[10px] uppercase tracking-widest text-gray-400 font-mono z-10 shrink-0">
+        
+        <div class="flex flex-col gap-1">
+            <span class="text-black">@Model.Film</span>
+            <span>ISO @Model.Iso &mdash; @Model.Format</span>
+        </div>
+
+        <div class="flex flex-col gap-1 text-right">
+            <div class="flex gap-2 justify-end text-black">
+                <span>@Model.FrameNum.ToString("D2")</span>
+                <span class="text-gray-300">▶</span>
+                <span class="text-gray-300">@Model.TotalFrames</span>
+            </div>
+            <span>@Model.UniqueId</span>
+        </div>
+    </footer>
+
+</body>
+</html>

@@ -1,5 +1,7 @@
 namespace Gallery.Models
 
+open System
+
 // Represents a single Roll on the Home Page
 type RollSummary = {
     Id: int
@@ -26,4 +28,17 @@ type RollDetailPage = {
     Keepers: int
     Date: string
     Frames: FrameDetail list
+}
+
+type FrameViewModel = {
+    RollId: int
+    FrameNum: int
+    TotalFrames: int
+    Film: string
+    Iso: int
+    Format: string
+    Process: string
+    UniqueId: string
+    PrevFrame: Nullable<int> 
+    NextFrame: Nullable<int>
 }
