@@ -15,6 +15,8 @@ open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
+open Microsoft.AspNetCore.Authentication.Cookies
+open Microsoft.AspNetCore.Http
 open Gallery.Services
 
 module Program =
@@ -33,6 +35,19 @@ module Program =
         
         // Register DummyDataService as a singleton
         builder.Services.AddSingleton<DummyDataService>()
+        
+        // Add Authentication services
+        builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+            .AddCookie(fun options ->
+                options.LoginPath <- "/admin/login"
+                options.LogoutPath <- "/admin/logout"
+                options.AccessDeniedPath <- "/admin/login"
+                options.Cookie.HttpOnly <- true
+                options.Cookie.SecurePolicy <- CookieSecurePolicy.SameAsRequest
+                options.Cookie.SameSite <- SameSiteMode.Strict
+            ) |> ignore
+        
+        builder.Services.AddAuthorization()
 
         let app = builder.Build()
 
@@ -40,15 +55,16 @@ module Program =
             app.UseExceptionHandler("/Home/Error")
             app.UseHsts
                 () |> ignore
-        // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
 
         app.UseHttpsRedirection()
 
         app.UseStaticFiles()
         app.UseRouting()
+        app.UseAuthentication()
         app.UseAuthorization()
 
         app.MapControllerRoute(name = "default", pattern = "{controller=Home}/{action=Index}/{id?}")
+        app.MapControllerRoute(name = "admin", pattern = "admin/{action=Index}/{id?}", defaults = {| controller = "Admin" |})
 
         app.MapRazorPages()
 

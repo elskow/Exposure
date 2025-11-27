@@ -6,10 +6,10 @@ open System.Text.Json
 open Gallery.Models
 
 type DummyDataService() =
-    
+
     let mutable placesData: PlaceSummary list = []
     let mutable placeDetails: Map<int, PlaceDetailPage> = Map.empty
-    
+
     member _.LoadData() =
         try
             let jsonPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Data", "dummy-data.json")
@@ -17,8 +17,8 @@ type DummyDataService() =
                 let jsonContent = File.ReadAllText(jsonPath)
                 let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                 let data = JsonSerializer.Deserialize<JsonElement>(jsonContent, options)
-                
-                let places = 
+
+                let places =
                     data.GetProperty("places").EnumerateArray()
                     |> Seq.map (fun placeElement ->
                         let id = placeElement.GetProperty("id").GetInt32()
@@ -26,21 +26,21 @@ type DummyDataService() =
                         let location = placeElement.GetProperty("location").GetString()
                         let country = placeElement.GetProperty("country").GetString()
                         let totalPhotos = placeElement.GetProperty("totalPhotos").GetInt32()
-                        
+
                         let tripDatesElement = placeElement.GetProperty("tripDates")
                         let startDate = tripDatesElement.GetProperty("startDate").GetString()
                         let endDateElement = tripDatesElement.GetProperty("endDate")
                         let endDate = if endDateElement.ValueKind = JsonValueKind.Null then None else Some(endDateElement.GetString())
                         let isSingleDay = tripDatesElement.GetProperty("isSingleDay").GetBoolean()
                         let displayText = tripDatesElement.GetProperty("displayText").GetString()
-                        
+
                         let tripDates = {
                             StartDate = startDate
                             EndDate = endDate
                             IsSingleDay = isSingleDay
                             DisplayText = displayText
                         }
-                        
+
                         {
                             Id = id
                             Name = name
@@ -51,8 +51,8 @@ type DummyDataService() =
                         }
                     )
                     |> List.ofSeq
-                
-                let details = 
+
+                let details =
                     data.GetProperty("places").EnumerateArray()
                     |> Seq.map (fun placeElement ->
                         let id = placeElement.GetProperty("id").GetInt32()
@@ -61,22 +61,22 @@ type DummyDataService() =
                         let country = placeElement.GetProperty("country").GetString()
                         let totalPhotos = placeElement.GetProperty("totalPhotos").GetInt32()
                         let favorites = placeElement.GetProperty("favorites").GetInt32()
-                        
+
                         let tripDatesElement = placeElement.GetProperty("tripDates")
                         let startDate = tripDatesElement.GetProperty("startDate").GetString()
                         let endDateElement = tripDatesElement.GetProperty("endDate")
                         let endDate = if endDateElement.ValueKind = JsonValueKind.Null then None else Some(endDateElement.GetString())
                         let isSingleDay = tripDatesElement.GetProperty("isSingleDay").GetBoolean()
                         let displayText = tripDatesElement.GetProperty("displayText").GetString()
-                        
+
                         let tripDates = {
                             StartDate = startDate
                             EndDate = endDate
                             IsSingleDay = isSingleDay
                             DisplayText = displayText
                         }
-                        
-                        let photos = 
+
+                        let photos =
                             placeElement.GetProperty("photos").EnumerateArray()
                             |> Seq.map (fun photoElement ->
                                 {
@@ -85,7 +85,7 @@ type DummyDataService() =
                                 }
                             )
                             |> List.ofSeq
-                        
+
                         let detailPage = {
                             PlaceId = id
                             Name = name
@@ -96,31 +96,31 @@ type DummyDataService() =
                             TripDates = tripDates
                             Photos = photos
                         }
-                        
+
                         (id, detailPage)
                     )
                     |> Map.ofSeq
-                
+
                 placesData <- places
                 placeDetails <- details
                 true
             else
                 false
         with
-        | ex -> 
+        | ex ->
             printfn "Error loading dummy data: %s" ex.Message
             false
-    
+
     member this.GetAllPlaces() =
         if List.isEmpty placesData then
             this.LoadData() |> ignore
         placesData
-    
+
     member this.GetPlaceById(id: int) =
         if Map.isEmpty placeDetails then
             this.LoadData() |> ignore
         Map.tryFind id placeDetails
-    
+
     member this.GetPhotoViewModel(placeId: int, photoNum: int) =
         match this.GetPlaceById(placeId) with
         | Some placeDetail ->
@@ -128,7 +128,7 @@ type DummyDataService() =
             let prevOpt = if photoNum > 1 then Some(photoNum - 1) else None
             let nextOpt = if photoNum < totalPhotos then Some(photoNum + 1) else None
             let uniqueId = sprintf "PH/%X" (photoNum * 12345)
-            
+
             Some {
                 PlaceId = placeId
                 PhotoNum = photoNum

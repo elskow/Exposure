@@ -47,6 +47,6 @@ type PhotoViewModel = {
     Country: string
     TripDates: TripDates
     UniqueId: string
-    PrevPhoto: Nullable<int> 
+    PrevPhoto: Nullable<int>
     NextPhoto: Nullable<int>
 }

@@ -1,0 +1,65 @@
+@using Gallery.Models
+@model LoginViewModel
+@{
+    ViewData["Title"] = "Admin";
+    Layout = null; 
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"]</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'DM Mono', monospace; }
+    </style>
+</head>
+<body class="bg-[#F0F0F0] min-h-screen flex flex-col items-center justify-center p-6 text-[#111] selection:bg-black selection:text-white">
+
+    <div class="w-full max-w-[320px]">
+        
+        <div class="mb-8 text-center">
+            <h1 class="font-serif text-2xl italic text-black">Admin</h1>
+        </div>
+
+        <div class="bg-white p-8 border border-gray-200 shadow-sm">
+            <form class="space-y-6" asp-action="Login" method="post">
+                @Html.AntiForgeryToken()
+                
+                <div class="space-y-1">
+                    <input asp-for="Username" 
+                           class="block w-full border-b border-gray-200 bg-transparent py-2 text-sm font-sans placeholder-gray-400 focus:border-black focus:outline-none transition-colors rounded-none" 
+                           placeholder="Username"
+                           autocomplete="username">
+                    <span asp-validation-for="Username" class="text-red-500 text-[9px]"></span>
+                </div>
+
+                <div class="space-y-1">
+                    <input asp-for="Password" 
+                           class="block w-full border-b border-gray-200 bg-transparent py-2 text-sm font-sans placeholder-gray-400 focus:border-black focus:outline-none transition-colors rounded-none" 
+                           placeholder="Password"
+                           type="password"
+                           autocomplete="current-password">
+                    <span asp-validation-for="Password" class="text-red-500 text-[9px]"></span>
+                </div>
+
+                <button type="submit" 
+                        class="w-full bg-black mt-4 py-3 text-white text-[10px] uppercase tracking-[0.2em] hover:bg-neutral-800 transition-colors">
+                    Sign In
+                </button>
+            </form>
+        </div>
+
+        <div class="mt-8 text-center">
+            <a href="@Url.Action("Index", "Home")" class="text-[9px] text-gray-400 hover:text-black uppercase tracking-widest transition-colors">
+                &larr; Return to Gallery
+            </a>
+        </div>
+
+    </div>
+
+</body>
+</html>
