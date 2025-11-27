@@ -1,16 +1,8 @@
-﻿@{
+﻿@using Gallery.Models
+@model IEnumerable<RollSummary>
+
+@{
     ViewData["Title"] = "Visual Log";
-    
-    // Helmy's Original Data
-    var rolls = new[]
-    {
-        new { Id = 1, Film = "Classic Chrome", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 24 },
-        new { Id = 2, Film = "Acros+R Filter", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 12 },
-        new { Id = 3, Film = "Provia Standard", Camera = "Fujifilm X-A10", Lens="XC 16-50mm", Frames = 45 },
-        new { Id = 4, Film = "Kodak Portra 400", Camera = "Analog SLR", Lens="50mm f/1.8", Frames = 36 },
-        new { Id = 5, Film = "Godox Flash Test", Camera = "Fujifilm X-A10", Lens="56mm f/1.2", Frames = 8 },
-        new { Id = 6, Film = "Velvia 50", Camera = "Fujifilm X-A10", Lens="Manual Focus", Frames = 19 },
-    };
 }
 
 <div class="max-w-xl mx-auto px-6 text-[#111] mt-32">
@@ -48,9 +40,9 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-50/60">
-                @foreach (var roll in rolls)
+                @foreach (var roll in Model)
                 {
-                    <tr class="group hover:bg-gray-50 transition-colors duration-200 cursor-pointer">
+                    <tr onclick="location.href='@Url.Action("Index", "Roll", new { id = roll.Id })'" class="group hover:bg-gray-50 transition-colors duration-200 cursor-pointer">
                         <td class="py-3 text-gray-300 text-[10px] align-middle font-mono">
                             @roll.Id.ToString("D2")
                         </td>
