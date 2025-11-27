@@ -2,6 +2,14 @@ namespace Gallery.Models
 
 open System
 
+// Represents trip date information
+type TripDates = {
+    StartDate: string
+    EndDate: string option
+    IsSingleDay: bool
+    DisplayText: string
+}
+
 // Represents a single Place on the Home Page
 type PlaceSummary = {
     Id: int
@@ -9,7 +17,7 @@ type PlaceSummary = {
     Location: string
     Country: string
     Photos: int
-    Date: string
+    TripDates: TripDates
 }
 
 // Represents a single photo on the Place Detail page
@@ -26,7 +34,7 @@ type PlaceDetailPage = {
     Country: string
     TotalPhotos: int
     Favorites: int
-    Date: string
+    TripDates: TripDates
     Photos: PhotoDetail list
 }
 
@@ -37,6 +45,7 @@ type PhotoViewModel = {
     PlaceName: string
     Location: string
     Country: string
+    TripDates: TripDates
     UniqueId: string
     PrevPhoto: Nullable<int> 
     NextPhoto: Nullable<int>

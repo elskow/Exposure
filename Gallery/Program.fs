@@ -15,6 +15,7 @@ open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
+open Gallery.Services
 
 module Program =
     let exitCode = 0
@@ -29,6 +30,9 @@ module Program =
             .AddRazorRuntimeCompilation()
 
         builder.Services.AddRazorPages()
+        
+        // Register DummyDataService as a singleton
+        builder.Services.AddSingleton<DummyDataService>()
 
         let app = builder.Build()
 
