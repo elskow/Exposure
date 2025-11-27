@@ -1,11 +1,12 @@
 @using Gallery.Models
-@model FrameViewModel
+@model PhotoViewModel
 
 @{
-    ViewData["Title"] = "Frame " + Model.FrameNum;
+    ViewData["Title"] = "Photo " + Model.PhotoNum;
     Layout = null; 
 
-    bool isPortrait = Model.FrameNum % 3 == 0 || Model.FrameNum % 5 == 0;
+    // Logic to mimic the grid layout (Portrait vs Landscape)
+    bool isPortrait = Model.PhotoNum % 3 == 0 || Model.PhotoNum % 5 == 0;
 }
 
 <!DOCTYPE html>
@@ -26,15 +27,15 @@
 
     <header class="flex justify-between items-center px-5 py-6 md:px-12 md:py-8 z-10 shrink-0">
         
-        <a href="@Url.Action("Index", "Roll", new { id = Model.RollId })" 
+        <a href="@Url.Action("Index", "Place", new { id = Model.PlaceId })" 
            class="group inline-flex items-center gap-3 text-gray-400 hover:text-black transition-colors duration-300">
             <span class="text-[10px] font-mono tracking-[0.2em] uppercase pt-px">Close</span>
         </a>
 
         <div class="flex gap-6 md:gap-8 text-gray-400">
-            @if (Model.PrevFrame.HasValue)
+            @if (Model.PrevPhoto.HasValue)
             {
-                <a href="@Url.Action("Detail", "Roll", new { rollId = Model.RollId, frameNum = Model.PrevFrame.Value })" 
+                <a href="@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = Model.PrevPhoto.Value })" 
                    class="p-2 -mr-2 hover:text-black transition-colors duration-300">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
                 </a>
@@ -46,9 +47,9 @@
                 </span>
             }
 
-            @if (Model.NextFrame.HasValue)
+            @if (Model.NextPhoto.HasValue)
             {
-                <a href="@Url.Action("Detail", "Roll", new { rollId = Model.RollId, frameNum = Model.NextFrame.Value })" 
+                <a href="@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = Model.NextPhoto.Value })" 
                    class="p-2 -mr-2 hover:text-black transition-colors duration-300">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                 </a>
@@ -90,15 +91,15 @@
     <footer class="flex justify-between items-end px-5 py-6 md:px-12 md:py-8 text-[10px] uppercase tracking-widest text-gray-400 font-mono z-10 shrink-0">
         
         <div class="flex flex-col gap-1">
-            <span class="text-black">@Model.Film</span>
-            <span>ISO @Model.Iso &mdash; @Model.Format</span>
+            <span class="text-black font-medium">@Model.PlaceName</span>
+            <span>@Model.Location, @Model.Country</span>
         </div>
 
         <div class="flex flex-col gap-1 text-right">
             <div class="flex gap-2 justify-end text-black">
-                <span>@Model.FrameNum.ToString("D2")</span>
+                <span>@Model.PhotoNum.ToString("D2")</span>
                 <span class="text-gray-300">▶</span>
-                <span class="text-gray-300">@Model.TotalFrames</span>
+                <span class="text-gray-300">@Model.TotalPhotos</span>
             </div>
             <span>@Model.UniqueId</span>
         </div>

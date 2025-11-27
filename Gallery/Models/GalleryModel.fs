@@ -2,43 +2,42 @@ namespace Gallery.Models
 
 open System
 
-// Represents a single Roll on the Home Page
-type RollSummary = {
+// Represents a single Place on the Home Page
+type PlaceSummary = {
     Id: int
-    Film: string
-    Camera: string
-    Lens: string
-    Frames: int
+    Name: string
+    Location: string
+    Country: string
+    Photos: int
     Date: string
 }
 
-// Represents a single photo frame on the Roll Detail page
-type FrameDetail = {
+// Represents a single photo on the Place Detail page
+type PhotoDetail = {
     Num: int
     IsPortrait: bool
 }
 
-// Represents the data needed for the Roll Detail Page
-type RollDetailPage = {
-    RollId: int
-    Film: string
-    Camera: string
-    Lens: string
-    TotalFrames: int
-    Keepers: int
+// Represents the data needed for the Place Detail Page
+type PlaceDetailPage = {
+    PlaceId: int
+    Name: string
+    Location: string
+    Country: string
+    TotalPhotos: int
+    Favorites: int
     Date: string
-    Frames: FrameDetail list
+    Photos: PhotoDetail list
 }
 
-type FrameViewModel = {
-    RollId: int
-    FrameNum: int
-    TotalFrames: int
-    Film: string
-    Iso: int
-    Format: string
-    Process: string
+type PhotoViewModel = {
+    PlaceId: int
+    PhotoNum: int
+    TotalPhotos: int
+    PlaceName: string
+    Location: string
+    Country: string
     UniqueId: string
-    PrevFrame: Nullable<int> 
-    NextFrame: Nullable<int>
+    PrevPhoto: Nullable<int> 
+    NextPhoto: Nullable<int>
 }
