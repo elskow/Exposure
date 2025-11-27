@@ -1,0 +1,16 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+
+# Tailwind CSS compiled output
+Gallery/wwwroot/css/site.compiled.css
+
+# Node modules
+Gallery/node_modules/
+Gallery/package-lock.json
+node_modules/
+package-lock.json
+package.json
+.idea

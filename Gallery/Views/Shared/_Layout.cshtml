@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - Gallery</title>
+
+    <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true"/>
+</head>
+<body>
+<header>
+    <nav class="bg-white border-b border-gray-200 shadow-sm mb-3">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex">
+                    <a class="flex items-center text-xl font-bold text-gray-900" asp-area="" asp-controller="Home" asp-action="Index">Gallery</a>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <a class="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
+                    <a class="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium" asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+</header>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <main role="main">
+        @RenderBody()
+    </main>
+</div>
+
+<footer class="border-t border-gray-200 bg-gray-50 text-gray-600 mt-12">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        &copy; 2025 - Gallery - <a asp-area="" asp-controller="Home" asp-action="Privacy" class="text-gray-600 hover:text-gray-900">Privacy</a>
+    </div>
+</footer>
+
+<script src="~/js/site.js" asp-append-version="true"></script>
+
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
