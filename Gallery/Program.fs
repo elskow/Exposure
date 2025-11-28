@@ -3,14 +3,7 @@ namespace Gallery
 #nowarn "20"
 
 open System
-open System.Collections.Generic
-open System.IO
-open System.Linq
-open System.Threading.Tasks
-open Microsoft.AspNetCore
 open Microsoft.AspNetCore.Builder
-open Microsoft.AspNetCore.Hosting
-open Microsoft.AspNetCore.HttpsPolicy
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
@@ -21,7 +14,6 @@ open Microsoft.EntityFrameworkCore
 open Gallery.Data
 open Gallery.Services
 open Gallery.Middleware
-open System.Threading.Tasks
 open Microsoft.AspNetCore.Authentication.OpenIdConnect
 open Microsoft.IdentityModel.Protocols.OpenIdConnect
 
@@ -39,13 +31,11 @@ module Program =
 
         builder.Services.AddRazorPages()
 
-        // Add SQLite Database
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
         builder.Services.AddDbContext<GalleryDbContext>(fun options ->
             options.UseSqlite(connectionString) |> ignore
         ) |> ignore
 
-        // Register services
         builder.Services.AddScoped<SlugGeneratorService>() |> ignore
         builder.Services.AddScoped<ImageProcessingService>() |> ignore
         builder.Services.AddScoped<PlaceService>() |> ignore
@@ -56,11 +46,9 @@ module Program =
         builder.Services.AddScoped<MalwareScanningService>() |> ignore
         builder.Services.AddScoped<InputValidationService>() |> ignore
 
-        // Add Authentication services based on configuration
         let authMode = builder.Configuration.["Authentication:Mode"]
 
         if authMode = "OIDC" then
-            // Configure OIDC authentication
             builder.Services.AddAuthentication(fun options ->
                 options.DefaultScheme <- CookieAuthenticationDefaults.AuthenticationScheme
                 options.DefaultChallengeScheme <- OpenIdConnectDefaults.AuthenticationScheme
@@ -86,7 +74,6 @@ module Program =
                         scopes.Split(' ') |> Array.iter (fun scope -> options.Scope.Add(scope))
                 ) |> ignore
         else
-            // Default to local authentication with cookies
             builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
                 .AddCookie(fun options ->
                     options.LoginPath <- "/admin/login"
@@ -101,52 +88,45 @@ module Program =
 
         let app = builder.Build()
 
-        // Ensure database is created and seed data
         task {
             use scope = app.Services.CreateScope()
+            let logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Gallery.Startup")
             let dbContext = scope.ServiceProvider.GetRequiredService<GalleryDbContext>()
             dbContext.Database.EnsureCreated() |> ignore
 
-            // Seed sample data if database is empty
             let placeService = scope.ServiceProvider.GetRequiredService<PlaceService>()
-            do! SeedData.seedPlaces placeService
+            do! SeedData.seedPlaces placeService logger
 
-            // Create default admin user if using local auth and none exists
             let authMode = builder.Configuration.["Authentication:Mode"]
             if authMode <> "OIDC" then
                 let authService = scope.ServiceProvider.GetRequiredService<AuthenticationService>()
 
-                // Read initial admin credentials from configuration
                 let defaultUsername = builder.Configuration.["Authentication:Local:Username"]
                 let defaultPassword = builder.Configuration.["Authentication:Local:Password"]
 
                 if String.IsNullOrEmpty(defaultUsername) || String.IsNullOrEmpty(defaultPassword) then
-                    printfn "Warning: No default admin credentials configured in appsettings.json"
+                    logger.LogWarning("No default admin credentials configured in appsettings.json")
                 else
                     let! existingAdmin = authService.GetAdminUserAsync(defaultUsername)
                     match existingAdmin with
                     | None ->
-                        // Create default admin user from configuration
                         let! result = authService.CreateAdminUserAsync(defaultUsername, defaultPassword)
                         match result with
                         | Ok _ ->
-                            printfn "Default admin user '%s' created from appsettings.json" defaultUsername
-                            printfn "⚠️  WARNING: Change the default password immediately!"
-                        | Error msg -> printfn "Failed to create admin user: %s" msg
+                            logger.LogInformation("Default admin user '{Username}' created from appsettings.json", defaultUsername)
+                            logger.LogWarning("Change the default password immediately!")
+                        | Error msg -> logger.LogError("Failed to create admin user: {Message}", msg)
                     | Some _ -> ()
         } |> fun t -> t.Wait()
 
         if not (builder.Environment.IsDevelopment()) then
             app.UseExceptionHandler("/Home/Error")
-            app.UseHsts
-                () |> ignore
+            app.UseHsts() |> ignore
 
-        // Handle 404 errors with custom page
         app.UseStatusCodePagesWithReExecute("/404") |> ignore
 
         app.UseHttpsRedirection()
 
-        // Add security headers (CSP, X-Frame-Options, etc.)
         app.UseSecurityHeaders() |> ignore
 
         app.UseStaticFiles()

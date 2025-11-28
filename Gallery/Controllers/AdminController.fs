@@ -14,7 +14,6 @@ open Gallery.Services
 type AdminController(placeService: PlaceService, photoService: PhotoService, authService: AuthenticationService, pathValidation: PathValidationService, inputValidation: InputValidationService, configuration: IConfiguration) =
     inherit Controller()
 
-    // Helper to convert PlaceDetailPage to PlaceSummary
     let toPlaceSummary (placeDetail: PlaceDetailPage) =
         {
             Id = placeDetail.PlaceId
@@ -28,24 +27,13 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             FavoritePhotoFileName = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.FileName)
         }
 
-    // GET: /admin
     [<Route("/admin")>]
     [<Authorize>]
     member this.Index() =
         task {
             let! places = placeService.GetAllPlacesAsync()
             let totalPhotos = places |> List.sumBy (fun p -> p.Photos)
-
-            // Calculate total favorites from database
-            let! placeDetails =
-                places
-                |> List.map (fun place -> placeService.GetPlaceByIdAsync(place.Id))
-                |> Task.WhenAll
-
-            let totalFavorites =
-                placeDetails
-                |> Array.choose id
-                |> Array.sumBy (fun placeDetail -> placeDetail.Favorites)
+            let! totalFavorites = placeService.GetTotalFavoritesAsync()
 
             let model = {
                 TotalPlaces = List.length places
@@ -57,13 +45,11 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             return this.View(model) :> IActionResult
         }
 
-    // GET: /admin/create
     [<Route("/admin/create")>]
     [<Authorize>]
     member this.Create() =
         this.View()
 
-    // POST: /admin/create
     [<Route("/admin/create")>]
     [<HttpPost>]
     [<Authorize>]
@@ -73,7 +59,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             if not this.ModelState.IsValid then
                 return this.View(model) :> IActionResult
             else
-                // Validate input using InputValidationService
                 let validationResult = inputValidation.ValidatePlaceForm(model.Name, model.Location, model.Country, model.StartDate, model.EndDate |> Option.ofObj |> Option.defaultValue "")
 
                 match validationResult with
@@ -85,17 +70,14 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                     return this.RedirectToAction("Edit", {| id = placeId |}) :> IActionResult
         }
 
-    // GET: /admin/login
     [<Route("/admin/login")>]
     [<AllowAnonymous>]
     member this.Login(returnUrl: string) =
-        // If user is already authenticated, redirect to dashboard
         if this.User.Identity.IsAuthenticated then
             this.RedirectToAction("Index") :> IActionResult
         else
             this.View() :> IActionResult
 
-    // POST: /admin/login
     [<Route("/admin/login")>]
     [<HttpPost>]
     [<AllowAnonymous>]
@@ -106,24 +88,21 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                 let authMode = configuration.["Authentication:Mode"]
 
                 if authMode = "OIDC" then
-                    // OIDC handled by middleware, shouldn't reach here
                     return this.RedirectToAction("Index") :> IActionResult
                 else
-                    // Validate username format
                     let usernameValidation = inputValidation.ValidateUsername(model.Username)
                     match usernameValidation with
                     | Error msg ->
                         this.ModelState.AddModelError("", "Invalid credentials")
                         return this.View(model) :> IActionResult
                     | Ok validUsername ->
-                        // Validate TOTP code format if provided
                         let totpCodeOpt =
                             if String.IsNullOrWhiteSpace(totpCode) then
                                 None
                             else
                                 match inputValidation.ValidateTotpCode(totpCode) with
                                 | Ok code -> Some(code)
-                                | Error _ -> None // Invalid format, will fail auth anyway
+                                | Error _ -> None
 
                         let! authResult = authService.AuthenticateAsync(validUsername, model.Password, totpCodeOpt)
 
@@ -137,7 +116,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                             let claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme)
                             let authProperties = AuthenticationProperties()
 
-                            // Configure persistent cookie if "Remember Me" is checked
                             if model.RememberMe then
                                 authProperties.IsPersistent <- true
                                 authProperties.ExpiresUtc <- Nullable(DateTimeOffset.UtcNow.AddDays(30))
@@ -148,7 +126,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                                 authProperties
                             )
 
-                            // Redirect to return URL or dashboard
                             if not (String.IsNullOrEmpty(returnUrl)) && this.Url.IsLocalUrl(returnUrl) then
                                 return this.Redirect(returnUrl) :> IActionResult
                             else
@@ -160,7 +137,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                 return this.View(model) :> IActionResult
         }
 
-    // GET: /admin/edit/{slug}
     [<Route("/admin/edit/{slug}")>]
     [<Authorize>]
     member this.Edit(slug: string) =
@@ -173,14 +149,12 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             | None -> return this.NotFound() :> IActionResult
         }
 
-    // POST: /admin/update
     [<Route("/admin/update")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.Update(id: int, model: PlaceFormViewModel) =
         task {
-            // Validate ID
             match inputValidation.ValidateId(id, "Place ID") with
             | Error msg ->
                 return this.BadRequest(msg) :> IActionResult
@@ -193,7 +167,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                         return this.View("Edit", place) :> IActionResult
                     | None -> return this.NotFound() :> IActionResult
                 else
-                    // Validate input using InputValidationService
                     let validationResult = inputValidation.ValidatePlaceForm(model.Name, model.Location, model.Country, model.StartDate, model.EndDate |> Option.ofObj |> Option.defaultValue "")
 
                     match validationResult with
@@ -213,25 +186,20 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                             return this.NotFound() :> IActionResult
         }
 
-    // POST: /admin/delete
     [<Route("/admin/delete")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.Delete(id: int) =
         task {
-            // Validate ID
             match inputValidation.ValidateId(id, "Place ID") with
             | Error msg ->
                 return this.BadRequest(msg) :> IActionResult
             | Ok validId ->
-                // Use atomic deletion to prevent race conditions
-                // This holds the lock during the entire deletion process
                 let! success = photoService.DeletePlaceWithPhotosAsync(validId, placeService.DeletePlaceAsync)
                 return this.RedirectToAction("Index") :> IActionResult
         }
 
-    // GET: /admin/photos/{slug}
     [<Route("/admin/photos/{slug}")>]
     [<Authorize>]
     member this.Photos(slug: string) =
@@ -242,14 +210,12 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             | None -> return this.NotFound() :> IActionResult
         }
 
-    // POST: /admin/photos/upload
     [<Route("/admin/photos/upload")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.UploadPhotos(placeId: int, files: Microsoft.AspNetCore.Http.IFormFileCollection) =
         task {
-            // Validate placeId
             match inputValidation.ValidateId(placeId, "Place ID") with
             | Error msg ->
                 return this.BadRequest({| success = false; message = msg |}) :> IActionResult
@@ -267,14 +233,12 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                         return this.BadRequest({| success = false; message = msg |}) :> IActionResult
         }
 
-    // POST: /admin/photos/delete
     [<Route("/admin/photos/delete")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.DeletePhoto(placeId: int, photoNum: int) =
         task {
-            // Validate IDs
             match inputValidation.ValidateId(placeId, "Place ID"), inputValidation.ValidateId(photoNum, "Photo number") with
             | Error msg, _ -> return this.BadRequest({| success = false; message = msg |}) :> IActionResult
             | _, Error msg -> return this.BadRequest({| success = false; message = msg |}) :> IActionResult
@@ -286,19 +250,16 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                     return this.NotFound({| success = false; message = "Photo not found" |}) :> IActionResult
         }
 
-    // POST: /admin/photos/reorder
     [<Route("/admin/photos/reorder")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.ReorderPhotos(placeId: int, order: int[]) =
         task {
-            // Validate placeId
             match inputValidation.ValidateId(placeId, "Place ID") with
             | Error msg ->
                 return this.BadRequest({| success = false; message = msg |}) :> IActionResult
             | Ok validPlaceId ->
-                // Validate all order values
                 let orderValidations = order |> Array.map (fun o -> inputValidation.ValidateId(o, "Order value"))
                 let invalidOrders = orderValidations |> Array.choose (function Error msg -> Some msg | Ok _ -> None)
 
@@ -313,14 +274,12 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                         return this.BadRequest({| success = false; message = "Failed to reorder photos" |}) :> IActionResult
         }
 
-    // POST: /admin/photos/favorite
     [<Route("/admin/photos/favorite")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.SetFavorite(placeId: int, photoNum: int, isFavorite: bool) =
         task {
-            // Validate IDs
             match inputValidation.ValidateId(placeId, "Place ID"), inputValidation.ValidateId(photoNum, "Photo number") with
             | Error msg, _ -> return this.BadRequest({| success = false; message = msg |}) :> IActionResult
             | _, Error msg -> return this.BadRequest({| success = false; message = msg |}) :> IActionResult
@@ -332,7 +291,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                     return this.NotFound({| success = false; message = "Photo not found" |}) :> IActionResult
         }
 
-    // GET: /admin/totp-setup
     [<Route("/admin/totp-setup")>]
     [<Authorize>]
     member this.TotpSetup() =
@@ -351,14 +309,12 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                 return this.RedirectToAction("Index") :> IActionResult
         }
 
-    // POST: /admin/verify-totp
     [<Route("/admin/verify-totp")>]
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.VerifyTotp(code: string) =
         task {
-            // Validate TOTP code format
             match inputValidation.ValidateTotpCode(code) with
             | Error msg ->
                 this.TempData.["Error"] <- msg
@@ -380,7 +336,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                     return this.RedirectToAction("Index") :> IActionResult
         }
 
-    // POST: /admin/disable-totp
     [<Route("/admin/disable-totp")>]
     [<HttpPost>]
     [<Authorize>]
@@ -398,7 +353,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             return this.RedirectToAction("Index") :> IActionResult
         }
 
-    // POST: /admin/logout
     [<Route("/admin/logout")>]
     [<HttpPost>]
     [<Authorize>]

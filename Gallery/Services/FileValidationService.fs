@@ -10,7 +10,6 @@ open SixLabors.ImageSharp
 
 type FileValidationService(configuration: IConfiguration, logger: ILogger<FileValidationService>) =
 
-    // Configuration values
     let maxFileSizeInMB =
         let configValue = configuration.["FileUpload:MaxFileSizeInMB"]
         if String.IsNullOrEmpty(configValue) then 10 else Int32.Parse(configValue)
@@ -41,53 +40,38 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
 
     let maxImagePixels =
         let configValue = configuration.["FileUpload:MaxImagePixels"]
-        if String.IsNullOrEmpty(configValue) then 50000000L else Int64.Parse(configValue) // 50 megapixels
+        if String.IsNullOrEmpty(configValue) then 50000000L else Int64.Parse(configValue)
 
     let validateImageDimensions =
         let configValue = configuration.["FileUpload:ValidateImageDimensions"]
         if String.IsNullOrEmpty(configValue) then true else Boolean.Parse(configValue)
 
-    // Magic numbers (file signatures) for image formats
-    let imageMagicNumbers = [
-        // JPEG: FF D8 FF
-        ([| 0xFFuy; 0xD8uy; 0xFFuy |], "JPEG")
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
-        ([| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |], "PNG")
-        // WebP: 52 49 46 46 (RIFF) ... 57 45 42 50 (WEBP)
-        ([| 0x52uy; 0x49uy; 0x46uy; 0x46uy |], "WebP (RIFF)")
-        // GIF: 47 49 46 38 37 61 or 47 49 46 38 39 61
-        ([| 0x47uy; 0x49uy; 0x46uy; 0x38uy; 0x37uy; 0x61uy |], "GIF87a")
-        ([| 0x47uy; 0x49uy; 0x46uy; 0x38uy; 0x39uy; 0x61uy |], "GIF89a")
-    ]
+    let jpegMagic = [| 0xFFuy; 0xD8uy; 0xFFuy |]
+    let pngMagic = [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |]
+    let webpMagic = [| 0x52uy; 0x49uy; 0x46uy; 0x46uy |]
+    let gif87Magic = [| 0x47uy; 0x49uy; 0x46uy; 0x38uy; 0x37uy; 0x61uy |]
+    let gif89Magic = [| 0x47uy; 0x49uy; 0x46uy; 0x38uy; 0x39uy; 0x61uy |]
 
-    // Check if byte array starts with magic number
-    let startsWith (buffer: byte[]) (magicNumber: byte[]) =
-        if buffer.Length < magicNumber.Length then
+    let startsWith (buffer: byte[]) (bufferLength: int) (magicNumber: byte[]) =
+        if bufferLength < magicNumber.Length then
             false
         else
-            magicNumber |> Array.mapi (fun i b -> buffer.[i] = b) |> Array.forall id
+            let mutable matches = true
+            let mutable i = 0
+            while matches && i < magicNumber.Length do
+                if buffer.[i] <> magicNumber.[i] then
+                    matches <- false
+                i <- i + 1
+            matches
 
-    // Validate file magic number (file signature)
-    member _.ValidateMagicNumber(file: IFormFile) : Result<string, string> =
-        try
-            use stream = file.OpenReadStream()
-            let buffer = Array.zeroCreate<byte> 8
-            let bytesRead = stream.Read(buffer, 0, 8)
+    let detectFormatFromMagic (buffer: byte[]) (bytesRead: int) =
+        if startsWith buffer bytesRead jpegMagic then Some "JPEG"
+        elif startsWith buffer bytesRead pngMagic then Some "PNG"
+        elif startsWith buffer bytesRead webpMagic then Some "WebP"
+        elif startsWith buffer bytesRead gif87Magic then Some "GIF87a"
+        elif startsWith buffer bytesRead gif89Magic then Some "GIF89a"
+        else None
 
-            if bytesRead < 4 then
-                Error "File is too small to validate"
-            else
-                let matchedFormat =
-                    imageMagicNumbers
-                    |> List.tryFind (fun (magic, _) -> startsWith buffer magic)
-
-                match matchedFormat with
-                | Some (_, format) -> Ok format
-                | None -> Error "File content does not match any valid image format (invalid magic number)"
-        with
-        | ex -> Error (sprintf "Error reading file: %s" ex.Message)
-
-    // Validate file extension
     member _.ValidateExtension(file: IFormFile) : Result<unit, string> =
         let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
 
@@ -99,7 +83,6 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    // Validate MIME type
     member _.ValidateMimeType(file: IFormFile) : Result<unit, string> =
         if String.IsNullOrEmpty(file.ContentType) then
             Error "File MIME type is missing"
@@ -109,7 +92,6 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    // Validate file size
     member _.ValidateFileSize(file: IFormFile) : Result<unit, string> =
         let maxSizeBytes = int64 maxFileSizeInMB * 1024L * 1024L
 
@@ -121,7 +103,6 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    // Validate number of files
     member _.ValidateFileCount(fileCount: int) : Result<unit, string> =
         if fileCount = 0 then
             Error "No files provided"
@@ -130,50 +111,6 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    // Validate image dimensions to prevent image bombs
-    member _.ValidateImageDimensions(file: IFormFile) : Result<(int * int), string> =
-        if not validateImageDimensions then
-            Ok (0, 0) // Skip validation
-        else
-            try
-                use stream = file.OpenReadStream()
-
-                // Use ImageSharp to safely read image info without full decompression
-                let imageInfo = Image.Identify(stream)
-
-                if isNull imageInfo then
-                    Error "Unable to read image information"
-                else
-                    let width = imageInfo.Width
-                    let height = imageInfo.Height
-                    let totalPixels = int64 width * int64 height
-
-                    logger.LogDebug("Image {FileName}: {Width}x{Height} ({Pixels} pixels)",
-                        file.FileName, width, height, totalPixels)
-
-                    // Check width
-                    if width > maxImageWidth then
-                        Error (sprintf "Image width (%d) exceeds maximum allowed (%d)" width maxImageWidth)
-                    // Check height
-                    elif height > maxImageHeight then
-                        Error (sprintf "Image height (%d) exceeds maximum allowed (%d)" height maxImageHeight)
-                    // Check total pixels (image bomb protection)
-                    elif totalPixels > maxImagePixels then
-                        let megapixels = float totalPixels / 1000000.0
-                        let maxMegapixels = float maxImagePixels / 1000000.0
-                        Error (sprintf "Image size (%.1f MP) exceeds maximum allowed (%.1f MP). Possible decompression bomb."
-                            megapixels maxMegapixels)
-                    else
-                        Ok (width, height)
-            with
-            | :? OutOfMemoryException as ex ->
-                logger.LogError(ex, "Out of memory while processing image {FileName} - possible image bomb", file.FileName)
-                Error "Image processing failed: out of memory (possible decompression bomb)"
-            | ex ->
-                logger.LogError(ex, "Error validating image dimensions for {FileName}", file.FileName)
-                Error (sprintf "Error reading image: %s" ex.Message)
-
-    // Validate file name (prevent path traversal)
     member _.ValidateFileName(file: IFormFile) : Result<unit, string> =
         let fileName = Path.GetFileName(file.FileName)
 
@@ -186,7 +123,63 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    // Comprehensive validation
+    member _.ValidateMagicNumberAndDimensions(file: IFormFile) : Result<string * int * int, string> =
+        try
+            use stream = file.OpenReadStream()
+
+            let magicBuffer = Array.zeroCreate<byte> 8
+            let bytesRead = stream.Read(magicBuffer, 0, 8)
+
+            if bytesRead < 4 then
+                Error "File is too small to validate"
+            else
+                let formatResult =
+                    if validateMagicNumbers then
+                        match detectFormatFromMagic magicBuffer bytesRead with
+                        | Some format -> Ok format
+                        | None -> Error "File content does not match any valid image format (invalid magic number)"
+                    else
+                        Ok "Skipped"
+
+                match formatResult with
+                | Error msg -> Error msg
+                | Ok format ->
+                    if not validateImageDimensions then
+                        Ok (format, 0, 0)
+                    else
+                        stream.Position <- 0L
+
+                        let imageInfo = Image.Identify(stream)
+
+                        if isNull imageInfo then
+                            Error "Unable to read image information"
+                        else
+                            let width = imageInfo.Width
+                            let height = imageInfo.Height
+                            let totalPixels = int64 width * int64 height
+
+                            logger.LogDebug("Image {FileName}: {Width}x{Height} ({Pixels} pixels)",
+                                file.FileName, width, height, totalPixels)
+
+                            if width > maxImageWidth then
+                                Error (sprintf "Image width (%d) exceeds maximum allowed (%d)" width maxImageWidth)
+                            elif height > maxImageHeight then
+                                Error (sprintf "Image height (%d) exceeds maximum allowed (%d)" height maxImageHeight)
+                            elif totalPixels > maxImagePixels then
+                                let megapixels = float totalPixels / 1000000.0
+                                let maxMegapixels = float maxImagePixels / 1000000.0
+                                Error (sprintf "Image size (%.1f MP) exceeds maximum allowed (%.1f MP). Possible decompression bomb."
+                                    megapixels maxMegapixels)
+                            else
+                                Ok (format, width, height)
+        with
+        | :? OutOfMemoryException as ex ->
+            logger.LogError(ex, "Out of memory while processing image {FileName} - possible image bomb", file.FileName)
+            Error "Image processing failed: out of memory (possible decompression bomb)"
+        | ex ->
+            logger.LogError(ex, "Error validating image {FileName}", file.FileName)
+            Error (sprintf "Error reading image: %s" ex.Message)
+
     member this.ValidateFile(file: IFormFile) : Result<string, string> =
         match this.ValidateFileName(file) with
         | Error msg -> Error msg
@@ -200,32 +193,18 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
                     match this.ValidateMimeType(file) with
                     | Error msg -> Error msg
                     | Ok _ ->
-                        // Validate magic numbers
-                        let magicResult =
-                            if validateMagicNumbers then
-                                this.ValidateMagicNumber(file)
-                            else
-                                Ok "Skipped"
-
-                        match magicResult with
+                        match this.ValidateMagicNumberAndDimensions(file) with
                         | Error msg -> Error msg
-                        | Ok format ->
-                            // Validate image dimensions (image bomb protection)
-                            match this.ValidateImageDimensions(file) with
-                            | Error msg -> Error msg
-                            | Ok (width, height) ->
-                                if width > 0 && height > 0 then
-                                    Ok (sprintf "%s (%dx%d)" format width height)
-                                else
-                                    Ok format
+                        | Ok (format, width, height) ->
+                            if width > 0 && height > 0 then
+                                Ok (sprintf "%s (%dx%d)" format width height)
+                            else
+                                Ok format
 
-    // Validate multiple files
     member this.ValidateFiles(files: IFormFile list) : Result<unit, string list> =
-        // Check file count
         match this.ValidateFileCount(files.Length) with
         | Error msg -> Error [msg]
         | Ok _ ->
-            // Validate each file
             let validationResults =
                 files
                 |> List.mapi (fun i file ->
@@ -242,14 +221,3 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
                 Ok ()
             else
                 Error errors
-
-    // Get configuration info (for logging/debugging)
-    member _.GetConfigurationInfo() =
-        sprintf "Max File Size: %d MB | Max Files: %d | Allowed: %s | Magic Number Check: %b | Max Dimensions: %dx%d | Max Pixels: %d MP"
-            maxFileSizeInMB
-            maxFilesPerUpload
-            (String.Join(", ", allowedExtensions))
-            validateMagicNumbers
-            maxImageWidth
-            maxImageHeight
-            (int (maxImagePixels / 1000000L))

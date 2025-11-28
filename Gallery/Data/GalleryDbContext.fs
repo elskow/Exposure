@@ -28,7 +28,6 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
         and set value = this.adminUsers <- value
 
     override _.OnModelCreating(modelBuilder: ModelBuilder) =
-        // Configure Place -> Photo relationship
         modelBuilder.Entity<Place>()
             .HasMany<Photo>("Photos")
             .WithOne("Place")
@@ -36,25 +35,21 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
             .OnDelete(DeleteBehavior.Cascade)
             |> ignore
 
-        // Create unique index on Place Slug
         modelBuilder.Entity<Place>()
             .HasIndex("Slug")
             .IsUnique()
             |> ignore
 
-        // Create unique index on PlaceId + PhotoNum
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "PhotoNum")
             .IsUnique()
             |> ignore
 
-        // Create unique index on PlaceId + Photo Slug (slug must be unique within each place)
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "Slug")
             .IsUnique()
             |> ignore
 
-        // Configure AdminUser
         modelBuilder.Entity<AdminUser>()
             .HasIndex("Username")
             .IsUnique()

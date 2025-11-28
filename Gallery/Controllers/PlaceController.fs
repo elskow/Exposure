@@ -5,14 +5,9 @@ open Microsoft.AspNetCore.Mvc
 open Gallery.Models
 open Gallery.Services
 
-// RENAMED: RollController -> PlaceController
 type PlaceController(placeService: PlaceService) =
     inherit Controller()
 
-    // ---------------------------------------------------------
-    // URL: /places/{slug}
-    // Example: http://localhost:5059/places/a3f7e9b2
-    // ---------------------------------------------------------
     [<Route("places/{slug}")>]
     member this.Index (slug: string) =
         task {
@@ -22,10 +17,6 @@ type PlaceController(placeService: PlaceService) =
             | None -> return this.NotFound() :> IActionResult
         }
 
-    // ---------------------------------------------------------
-    // URL: /places/{placeSlug}/photos/{photoSlug}
-    // Example: http://localhost:5059/places/a3f7e9b2/photos/x9k2m5n8
-    // ---------------------------------------------------------
     [<Route("places/{placeSlug}/photos/{photoSlug}")>]
     member this.Detail (placeSlug: string, photoSlug: string) =
         task {
@@ -34,12 +25,10 @@ type PlaceController(placeService: PlaceService) =
             | Some placeDetail ->
                 let totalPhotos = placeDetail.TotalPhotos
 
-                // Find current photo by slug
                 let currentPhoto = placeDetail.Photos |> List.tryFind (fun p -> p.Slug = photoSlug)
                 match currentPhoto with
                 | None -> return this.NotFound() :> IActionResult
                 | Some photo ->
-                    // Find previous and next photos
                     let prevPhotoOpt =
                         if photo.Num > 1 then
                             placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num - 1)

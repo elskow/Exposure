@@ -1,20 +1,17 @@
 namespace Gallery.Data
 
-open System
-open Gallery.Models
+open Microsoft.Extensions.Logging
 open Gallery.Services
 
 module SeedData =
 
-    let seedPlaces (placeService: PlaceService) =
+    let seedPlaces (placeService: PlaceService) (logger: ILogger) =
         task {
-            // Check if database is already seeded
             let! existingPlaces = placeService.GetAllPlacesAsync()
 
             if List.isEmpty existingPlaces then
-                printfn "Seeding database with sample data..."
+                logger.LogInformation("Seeding database with sample data...")
 
-                // Seed Place 1: Santorini Sunsets
                 let! place1Id = placeService.CreatePlaceAsync(
                     "Santorini Sunsets",
                     "Oia",
@@ -23,7 +20,6 @@ module SeedData =
                     Some("2024-06-18")
                 )
 
-                // Seed Place 2: Tokyo Nights
                 let! place2Id = placeService.CreatePlaceAsync(
                     "Tokyo Nights",
                     "Shibuya",
@@ -32,7 +28,6 @@ module SeedData =
                     Some("2024-09-10")
                 )
 
-                // Seed Place 3: Swiss Alps
                 let! place3Id = placeService.CreatePlaceAsync(
                     "Swiss Alps",
                     "Zermatt",
@@ -41,7 +36,6 @@ module SeedData =
                     None
                 )
 
-                // Seed Place 4: Parisian Cafés
                 let! place4Id = placeService.CreatePlaceAsync(
                     "Parisian Cafés",
                     "Le Marais",
@@ -50,8 +44,8 @@ module SeedData =
                     Some("2025-08-13")
                 )
 
-                printfn "Database seeded successfully with %d places!" 4
-                printfn "Place IDs: %d, %d, %d, %d" place1Id place2Id place3Id place4Id
+                logger.LogInformation("Database seeded successfully with {Count} places!", 4)
+                logger.LogDebug("Place IDs: {Place1}, {Place2}, {Place3}, {Place4}", place1Id, place2Id, place3Id, place4Id)
             else
-                printfn "Database already contains %d place(s). Skipping seed." existingPlaces.Length
+                logger.LogInformation("Database already contains {Count} place(s). Skipping seed.", existingPlaces.Length)
         }

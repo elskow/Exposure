@@ -8,38 +8,45 @@ open System.Threading.Tasks
 open System.Collections.Concurrent
 open Microsoft.AspNetCore.Http
 open Microsoft.EntityFrameworkCore
+open Microsoft.Extensions.Logging
 open Gallery.Data
 open Gallery.Models
 
-type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment, fileValidation: FileValidationService, pathValidation: PathValidationService, malwareScanning: MalwareScanningService, slugGenerator: SlugGeneratorService, imageProcessing: ImageProcessingService) =
+type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment, fileValidation: FileValidationService, pathValidation: PathValidationService, malwareScanning: MalwareScanningService, slugGenerator: SlugGeneratorService, imageProcessing: ImageProcessingService, logger: ILogger<PhotoService>) =
 
-    // Dictionary to hold semaphores per placeId to prevent concurrent uploads to same place
     static let uploadLocks = new ConcurrentDictionary<int, SemaphoreSlim>()
 
-    // Get or create a semaphore for a specific place
     let getUploadLock(placeId: int) =
-        uploadLocks.GetOrAdd(placeId, fun _ -> new SemaphoreSlim(1, 1))
+        uploadLocks.GetOrAdd(placeId, fun _ ->
+            logger.LogDebug("Creating new upload lock for placeId {PlaceId}", placeId)
+            new SemaphoreSlim(1, 1))
+
+    let cleanupUploadLock(placeId: int) =
+        match uploadLocks.TryRemove(placeId) with
+        | true, semaphore ->
+            logger.LogDebug("Disposing upload lock for deleted placeId {PlaceId}", placeId)
+            semaphore.Dispose()
+        | false, _ ->
+            logger.LogDebug("No upload lock found for placeId {PlaceId} during cleanup", placeId)
 
     let getPhotoDirectory(placeId: int) =
         match pathValidation.CreateDirectorySafely(placeId) with
         | Ok path -> path
         | Error msg -> failwith (sprintf "Path validation failed: %s" msg)
 
-    // Upload photos for a place
     member this.UploadPhotosAsync(placeId: int, files: IFormFile list) =
         task {
-            // Validate all files first before processing
             match fileValidation.ValidateFiles(files) with
             | Error errors ->
                 let errorMessage = String.Join("; ", errors |> List.toArray)
+                logger.LogWarning("File validation failed for placeId {PlaceId}: {Errors}", placeId, errorMessage)
                 return Error errorMessage
             | Ok _ ->
-                // Scan for malware
                 match! malwareScanning.ScanFilesAsync(files) with
                 | Error scanError ->
+                    logger.LogWarning("Malware scan failed for placeId {PlaceId}: {Error}", placeId, scanError)
                     return Error (sprintf "Malware scan failed: %s" scanError)
                 | Ok _ ->
-                    // Get semaphore lock for this place to prevent race conditions
                     let uploadLock = getUploadLock(placeId)
                     let! _ = uploadLock.WaitAsync()
 
@@ -47,6 +54,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                         let! place = context.Places.FindAsync(placeId)
 
                         if isNull place then
+                            logger.LogWarning("Place not found for upload: {PlaceId}", placeId)
                             return Error "Place not found"
                         else
                             let photosDir = getPhotoDirectory(placeId)
@@ -60,7 +68,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                     let mutable filesCreated = false
 
                                     try
-                                        // Get current max PhotoNum from database (prevents race conditions)
                                         let! photosList =
                                             context.Photos
                                                 .Where(fun p -> p.PlaceId = placeId)
@@ -74,36 +81,29 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                                         let photoNum = currentMaxNum + 1
                                         let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
-                                        // Normalize extension to .jpg if it's .jpeg
                                         let normalizedExtension = if extension = ".jpeg" then ".jpg" else extension
-                                        // Generate UUID-based filename
                                         let uuid = Guid.NewGuid().ToString()
                                         fileName <- sprintf "%s%s" uuid normalizedExtension
                                         filePath <- Path.Combine(photosDir, fileName)
 
-                                        // Write file to disk
                                         use stream = new FileStream(filePath, FileMode.Create)
                                         do! file.CopyToAsync(stream)
-                                        stream.Close()
-                                        filesCreated <- true  // Mark that files exist on disk
+                                        filesCreated <- true
 
-                                        // Generate thumbnails for the uploaded image
                                         let! thumbnailResult = imageProcessing.GenerateThumbnailsAsync(filePath, fileName, photosDir)
                                         match thumbnailResult with
                                         | Error msg ->
-                                            // Thumbnail generation failed - delete the original file and ALL thumbnails
                                             try
                                                 if File.Exists(filePath) then File.Delete(filePath)
                                                 let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
                                                 ()
                                             with cleanupEx ->
-                                                printfn "Cleanup failed after thumbnail error: %s" cleanupEx.Message
+                                                logger.LogError(cleanupEx, "Cleanup failed after thumbnail error for {FileName}", file.FileName)
 
-                                            filesCreated <- false  // Files cleaned up
+                                            filesCreated <- false
                                             lastError <- Some (sprintf "Failed to generate thumbnails for %s: %s" file.FileName msg)
-                                            printfn "Error: %s" (lastError.Value)
+                                            logger.LogError("Thumbnail generation failed for {FileName}: {Error}", file.FileName, msg)
                                         | Ok _ ->
-                                            // Generate unique slug for this photo within the place
                                             let slugExists (slug: string) =
                                                 context.Photos.Any(fun p -> p.PlaceId = placeId && p.Slug = slug)
                                             let photoSlug = slugGenerator.GenerateUniqueSlug(slugExists)
@@ -118,48 +118,45 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                             context.Photos.Add(photo) |> ignore
 
                                             try
-                                                // Save immediately to prevent race conditions with concurrent uploads
                                                 let! _ = context.SaveChangesAsync()
                                                 uploadedCount <- uploadedCount + 1
-                                                filesCreated <- false  // Success! Don't clean up
+                                                filesCreated <- false
+                                                logger.LogInformation("Uploaded photo {PhotoNum} for placeId {PlaceId}: {FileName}", photoNum, placeId, fileName)
                                             with
                                             | dbEx ->
-                                                // Database save failed - clean up the files we just created
-                                                printfn "Database save failed, cleaning up files for %s: %s" file.FileName dbEx.Message
+                                                logger.LogError(dbEx, "Database save failed for {FileName}, cleaning up", file.FileName)
                                                 try
                                                     if File.Exists(filePath) then File.Delete(filePath)
                                                     let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
                                                     ()
                                                 with cleanupEx ->
-                                                    printfn "Cleanup failed after database error: %s" cleanupEx.Message
+                                                    logger.LogError(cleanupEx, "Cleanup failed after database error for {FileName}", file.FileName)
                                                 raise dbEx
                                     with
                                     | ex ->
-                                        // If anything fails, ensure cleanup and record error
                                         if filesCreated then
                                             try
-                                                printfn "Exception during upload, cleaning up files for %s" file.FileName
+                                                logger.LogWarning("Exception during upload, cleaning up files for {FileName}", file.FileName)
                                                 if File.Exists(filePath) then File.Delete(filePath)
                                                 let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
                                                 ()
                                             with cleanupEx ->
-                                                printfn "Cleanup failed in exception handler: %s" cleanupEx.Message
+                                                logger.LogError(cleanupEx, "Cleanup failed in exception handler for {FileName}", file.FileName)
 
                                         lastError <- Some (sprintf "Failed to upload %s: %s" file.FileName ex.Message)
-                                        printfn "Upload error: %s" (lastError.Value)
+                                        logger.LogError(ex, "Upload error for {FileName}", file.FileName)
 
                             if uploadedCount = 0 && lastError.IsSome then
                                 return Error lastError.Value
                             else
+                                logger.LogInformation("Successfully uploaded {Count} photos to placeId {PlaceId}", uploadedCount, placeId)
                                 return Ok uploadedCount
                     finally
                         uploadLock.Release() |> ignore
         }
 
-    // Delete a photo
     member this.DeletePhotoAsync(placeId: int, photoNum: int) =
         task {
-            // Acquire lock to prevent race conditions with uploads/reorders
             let uploadLock = getUploadLock(placeId)
             let! _ = uploadLock.WaitAsync()
 
@@ -168,26 +165,23 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     context.Photos.FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
 
                 if isNull photo then
+                    logger.LogWarning("Photo not found for deletion: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
                     return false
                 else
-                    // Delete file and thumbnails from filesystem with path validation
                     match pathValidation.GetValidatedExistingPhotoPath(placeId, photo.FileName) with
                     | Ok filePath ->
                         if File.Exists(filePath) then
                             File.Delete(filePath)
 
-                        // Delete thumbnails
                         let directory = Path.GetDirectoryName(filePath)
                         let! _ = imageProcessing.DeleteThumbnailsAsync(photo.FileName, directory)
                         ()
                     | Error msg ->
-                        printfn "Path validation error during delete: %s" msg
+                        logger.LogWarning("Path validation error during delete for placeId {PlaceId}: {Error}", placeId, msg)
 
-                    // Delete from database
                     context.Photos.Remove(photo) |> ignore
                     let! _ = context.SaveChangesAsync()
 
-                    // Reorder remaining photos
                     let! remainingPhotos =
                         context.Photos
                             .Where(fun p -> p.PlaceId = placeId && p.PhotoNum > photoNum)
@@ -196,19 +190,17 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                     for remainingPhoto in remainingPhotos do
                         let newNum = remainingPhoto.PhotoNum - 1
-                        // Update PhotoNum but keep the same UUID-based filename
                         remainingPhoto.PhotoNum <- newNum
 
                     let! _ = context.SaveChangesAsync()
+                    logger.LogInformation("Deleted photo {PhotoNum} from placeId {PlaceId}", photoNum, placeId)
                     return true
             finally
                 uploadLock.Release() |> ignore
         }
 
-    // Reorder photos
     member this.ReorderPhotosAsync(placeId: int, newOrder: int list) =
         task {
-            // Acquire lock to prevent race conditions with uploads/deletes
             let uploadLock = getUploadLock(placeId)
             let! _ = uploadLock.WaitAsync()
 
@@ -219,9 +211,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                         .ToListAsync()
 
                 if photos.Count <> newOrder.Length then
+                    logger.LogWarning("Reorder failed: photo count mismatch for placeId {PlaceId}. Expected {Expected}, got {Actual}", placeId, photos.Count, newOrder.Length)
                     return false
                 else
-                    // Step 1: Assign temporary PhotoNum values (offset by 10000) to avoid unique constraint conflicts
                     for (newNum, oldNum) in newOrder |> List.mapi (fun i oldNum -> (i + 1, oldNum)) do
                         let photo = photos.FirstOrDefault(fun p -> p.PhotoNum = oldNum)
                         if not (isNull photo) then
@@ -229,21 +221,19 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                     let! _ = context.SaveChangesAsync()
 
-                    // Step 2: Assign final PhotoNum values
                     for photo in photos do
                         if photo.PhotoNum >= 10000 then
                             photo.PhotoNum <- photo.PhotoNum - 10000
 
                     let! _ = context.SaveChangesAsync()
+                    logger.LogInformation("Reordered photos for placeId {PlaceId}", placeId)
                     return true
             finally
                 uploadLock.Release() |> ignore
         }
 
-    // Get all photos for a place
     member this.GetPhotosForPlaceAsync(placeId: int) =
         task {
-            // Acquire read lock to prevent seeing inconsistent state during reorder
             let uploadLock = getUploadLock(placeId)
             let! _ = uploadLock.WaitAsync()
 
@@ -259,49 +249,33 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                 uploadLock.Release() |> ignore
         }
 
-    // Delete all photos for a place (used when deleting a place)
-    member this.DeleteAllPhotosForPlaceAsync(placeId: int) =
-        task {
-            // Acquire lock to prevent race condition with concurrent uploads
-            let uploadLock = getUploadLock(placeId)
-            let! _ = uploadLock.WaitAsync()
-
-            try
-                match pathValidation.DeleteDirectorySafely(placeId) with
-                | Ok _ -> return ()
-                | Error msg ->
-                    printfn "Failed to delete photos directory: %s" msg
-                    return ()
-            finally
-                uploadLock.Release() |> ignore
-        }
-
-    // Atomic deletion of place with all photos - prevents race conditions
-    // This method holds the lock during the entire deletion process
     member this.DeletePlaceWithPhotosAsync(placeId: int, deletePlaceFunc: int -> Task<bool>) =
         task {
-            // Acquire lock to prevent race condition with concurrent uploads
             let uploadLock = getUploadLock(placeId)
             let! _ = uploadLock.WaitAsync()
 
             try
-                // Delete photos directory first
                 match pathValidation.DeleteDirectorySafely(placeId) with
-                | Ok _ -> ()
+                | Ok _ ->
+                    logger.LogInformation("Deleted photos directory for placeId {PlaceId}", placeId)
                 | Error msg ->
-                    printfn "Failed to delete photos directory: %s" msg
+                    logger.LogWarning("Failed to delete photos directory for placeId {PlaceId}: {Error}", placeId, msg)
 
-                // Delete place from database (while still holding the lock)
                 let! success = deletePlaceFunc(placeId)
+
+                if success then
+                    logger.LogInformation("Successfully deleted place {PlaceId} with all photos", placeId)
+                else
+                    logger.LogWarning("Failed to delete place {PlaceId} from database", placeId)
+
                 return success
             finally
                 uploadLock.Release() |> ignore
+                cleanupUploadLock(placeId)
         }
 
-    // Set a photo as favorite (and unset others for the same place)
     member this.SetFavoriteAsync(placeId: int, photoNum: int, isFavorite: bool) =
         task {
-            // Acquire lock to prevent race conditions (though less critical for this operation)
             let uploadLock = getUploadLock(placeId)
             let! _ = uploadLock.WaitAsync()
 
@@ -310,9 +284,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     context.Photos.FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
 
                 if isNull photo then
+                    logger.LogWarning("Photo not found for favorite toggle: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
                     return false
                 else
-                    // If setting as favorite, unset all other favorites for this place
                     if isFavorite then
                         let! otherPhotos =
                             context.Photos
@@ -324,36 +298,8 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                     photo.IsFavorite <- isFavorite
                     let! _ = context.SaveChangesAsync()
+                    logger.LogInformation("Set favorite for placeId {PlaceId}, photoNum {PhotoNum}: {IsFavorite}", placeId, photoNum, isFavorite)
                     return true
-            finally
-                uploadLock.Release() |> ignore
-        }
-
-    // Get favorite photo for a place
-    member this.GetFavoritePhotoAsync(placeId: int) =
-        task {
-            // Acquire read lock to prevent seeing inconsistent state
-            let uploadLock = getUploadLock(placeId)
-            let! _ = uploadLock.WaitAsync()
-
-            try
-                let! favoritePhoto =
-                    context.Photos
-                        .Where(fun p -> p.PlaceId = placeId && p.IsFavorite)
-                        .OrderBy(fun p -> p.PhotoNum :> obj)
-                        .FirstOrDefaultAsync()
-
-                if isNull favoritePhoto then
-                    // Return first photo as fallback
-                    let! firstPhoto =
-                        context.Photos
-                            .Where(fun p -> p.PlaceId = placeId)
-                            .OrderBy(fun p -> p.PhotoNum :> obj)
-                            .FirstOrDefaultAsync()
-
-                    return if isNull firstPhoto then None else Some(firstPhoto.PhotoNum)
-                else
-                    return Some(favoritePhoto.PhotoNum)
             finally
                 uploadLock.Release() |> ignore
         }

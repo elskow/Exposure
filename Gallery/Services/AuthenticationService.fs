@@ -13,18 +13,14 @@ open Gallery.Models
 
 type AuthenticationService(context: GalleryDbContext, logger: ILogger<AuthenticationService>) =
 
-    // Static lock to prevent race conditions when creating users
     static let createUserLock = new SemaphoreSlim(1, 1)
 
-    // Generic error message for all authentication failures to prevent enumeration
     let genericAuthError = "Invalid credentials"
 
-    // Generate a random TOTP secret
     member _.GenerateTotpSecret() =
         let key = KeyGeneration.GenerateRandomKey(20)
         Base32Encoding.ToString(key)
 
-    // Verify TOTP code
     member _.VerifyTotpCode(secret: string, code: string) =
         try
             let secretBytes = Base32Encoding.ToBytes(secret)
@@ -34,7 +30,6 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
         with
         | _ -> false
 
-    // Generate QR code for Google Authenticator
     member _.GenerateTotpQrCode(username: string, secret: string, issuer: string) =
         let totpUrl = sprintf "otpauth://totp/%s:%s?secret=%s&issuer=%s" issuer username secret issuer
         use qrGenerator = new QRCodeGenerator()
@@ -42,7 +37,6 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
         use qrCode = new PngByteQRCode(qrCodeData)
         qrCode.GetGraphic(20)
 
-    // Hash password using BCrypt-like algorithm (simple PBKDF2 for now)
     member _.HashPassword(password: string) =
         use rng = RandomNumberGenerator.Create()
         let salt = Array.zeroCreate<byte> 16
@@ -54,7 +48,6 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
         let hashBytes = Array.append salt hash
         Convert.ToBase64String(hashBytes)
 
-    // Verify password
     member _.VerifyPassword(password: string, hashedPassword: string) =
         try
             let hashBytes = Convert.FromBase64String(hashedPassword)
@@ -68,17 +61,14 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
         with
         | _ -> false
 
-    // Get admin user by username
     member this.GetAdminUserAsync(username: string) =
         task {
             let! user = context.AdminUsers.FirstOrDefaultAsync(fun u -> u.Username = username)
             return if isNull user then None else Some(user)
         }
 
-    // Create admin user
     member this.CreateAdminUserAsync(username: string, password: string) =
         task {
-            // Acquire lock to prevent duplicate username race condition
             let! _ = createUserLock.WaitAsync()
 
             try
@@ -103,7 +93,6 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
                 createUserLock.Release() |> ignore
         }
 
-    // Enable TOTP for user
     member this.EnableTotpAsync(username: string) =
         task {
             let! userOpt = this.GetAdminUserAsync(username)
@@ -125,7 +114,6 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
                     return Ok secret
         }
 
-    // Disable TOTP for user
     member this.DisableTotpAsync(username: string) =
         task {
             let! userOpt = this.GetAdminUserAsync(username)
@@ -143,31 +131,24 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
                 return true
         }
 
-    // Authenticate user with password and optional TOTP
-    // SECURITY: Uses consistent error messages and timing to prevent enumeration attacks
     member this.AuthenticateAsync(username: string, password: string, totpCode: string option) =
         task {
             let! userOpt = this.GetAdminUserAsync(username)
 
             match userOpt with
             | None ->
-                // User doesn't exist - but we still hash a dummy password to prevent timing attacks
                 let _ = this.VerifyPassword(password, this.HashPassword("dummy"))
                 logger.LogWarning("Authentication failed: user not found - {Username}", username)
                 return Error genericAuthError
 
             | Some user ->
-                // Verify password
                 if not (this.VerifyPassword(password, user.PasswordHash)) then
                     logger.LogWarning("Authentication failed: invalid password for user - {Username}", username)
                     return Error genericAuthError
                 else
-                    // Check TOTP if enabled
                     if user.TotpEnabled then
                         match totpCode with
                         | None ->
-                            // TOTP required but not provided
-                            // SECURITY: We return the same generic error to not reveal that password was correct
                             logger.LogWarning("Authentication failed: TOTP required but not provided for user - {Username}", username)
                             return Error genericAuthError
                         | Some code ->
@@ -184,17 +165,4 @@ type AuthenticationService(context: GalleryDbContext, logger: ILogger<Authentica
                         let! _ = context.SaveChangesAsync()
                         logger.LogInformation("Authentication successful for user: {Username}", username)
                         return Ok user
-        }
-
-    // Update last login time
-    member this.UpdateLastLoginAsync(username: string) =
-        task {
-            let! userOpt = this.GetAdminUserAsync(username)
-
-            match userOpt with
-            | None -> return ()
-            | Some user ->
-                user.LastLoginAt <- DateTime.UtcNow
-                let! _ = context.SaveChangesAsync()
-                return ()
         }

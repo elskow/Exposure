@@ -45,22 +45,3 @@ type PlaceFormViewModel() =
 
     [<RegularExpression(@"^\d{4}-\d{2}-\d{2}$", ErrorMessage = "End date must be in YYYY-MM-DD format")>]
     member val EndDate = "" with get, set
-
-// Legacy model - kept for backward compatibility
-type NewEntryViewModel() =
-    [<Required(ErrorMessage = "Name is required")>]
-    [<StringLength(200, MinimumLength = 1, ErrorMessage = "Name must be between 1 and 200 characters")>]
-    member val Name = "" with get, set
-
-    [<Required(ErrorMessage = "Location is required")>]
-    [<StringLength(100, MinimumLength = 1, ErrorMessage = "Location must be between 1 and 100 characters")>]
-    member val Location = "" with get, set
-
-    [<Required(ErrorMessage = "Country is required")>]
-    [<StringLength(100, MinimumLength = 1, ErrorMessage = "Country must be between 1 and 100 characters")>]
-    member val Country = "" with get, set
-
-    [<Required(ErrorMessage = "Trip dates are required")>]
-    member val TripDates = "" with get, set
-
-    member val Description = "" with get, set

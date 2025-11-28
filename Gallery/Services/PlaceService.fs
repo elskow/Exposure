@@ -5,67 +5,93 @@ open System.Globalization
 open System.Linq
 open System.Threading
 open Microsoft.EntityFrameworkCore
+open Microsoft.Extensions.Logging
 open Gallery.Data
 open Gallery.Models
 
-type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService) =
+type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService, logger: ILogger<PlaceService>) =
 
-    // Static lock to prevent race conditions when creating places with duplicate slugs
     static let createPlaceLock = new SemaphoreSlim(1, 1)
 
-    // Helper to format ISO date (YYYY-MM-DD) to display format (DD MMM, YYYY)
     let formatDateForDisplay (isoDate: string) =
         try
             let date = DateTime.ParseExact(isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)
             date.ToString("dd MMM, yyyy")
         with
-        | _ -> isoDate // Return as-is if parsing fails
+        | _ -> isoDate
 
-    // Helper to generate display text for trip dates
     let generateDisplayText (startDate: string) (endDate: string option) =
         let formattedStart = formatDateForDisplay startDate
         match endDate with
         | None -> formattedStart
         | Some endDateStr when not (String.IsNullOrWhiteSpace(endDateStr)) ->
             let formattedEnd = formatDateForDisplay endDateStr
-            // If same date, show single date
             if formattedStart = formattedEnd then formattedStart
             else
-                // Extract day parts for range display
                 let startDay = formattedStart.Substring(0, 2)
-                let endParts = formattedEnd.Split(' ')
                 sprintf "%s-%s" startDay formattedEnd
         | _ -> formattedStart
 
-    // Get all places with photo counts
+    let buildTripDates (startDate: string) (endDateRaw: string) =
+        let endDate = if isNull endDateRaw then None else Some(endDateRaw)
+        let isSingleDay = isNull endDateRaw
+        let displayText = generateDisplayText startDate endDate
+        {
+            StartDate = startDate
+            EndDate = endDate
+            IsSingleDay = isSingleDay
+            DisplayText = displayText
+        }
+
+    let toPlaceDetailPage (place: Place) =
+        let tripDates = buildTripDates place.StartDate place.EndDate
+
+        let photos =
+            place.Photos
+                .OrderBy(fun ph -> ph.PhotoNum :> obj)
+                .Select(fun ph -> {
+                    Num = ph.PhotoNum
+                    Slug = ph.Slug
+                    FileName = ph.FileName
+                    IsFavorite = ph.IsFavorite
+                })
+            |> Seq.toList
+
+        {
+            PlaceId = place.Id
+            PlaceSlug = place.Slug
+            Name = place.Name
+            Location = place.Location
+            Country = place.Country
+            TotalPhotos = place.Photos.Count
+            Favorites = place.Favorites
+            TripDates = tripDates
+            Photos = photos
+        }
+
     member this.GetAllPlacesAsync() =
         task {
             let! places =
                 context.Places
+                    .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
                     .OrderByDescending(fun p -> p.CreatedAt :> obj)
                     .ToListAsync()
 
+            logger.LogDebug("Loaded {Count} places from database", places.Count)
+
             return places
                 |> Seq.map (fun p ->
-                    let endDate =
-                        if isNull p.EndDate then None
-                        else Some(p.EndDate)
+                    let tripDates = buildTripDates p.StartDate p.EndDate
 
-                    let isSingleDay = isNull p.EndDate
-
-                    let displayText = generateDisplayText p.StartDate endDate
-
-                    // Get favorite photo or first photo
                     let favoritePhotoNum, favoritePhotoFileName =
-                        let favoritePhoto = p.Photos |> Seq.tryFind (fun ph -> ph.IsFavorite)
-                        match favoritePhoto with
-                        | Some photo -> Some(photo.PhotoNum), Some(photo.FileName)
-                        | None ->
-                            let firstPhoto = p.Photos |> Seq.sortBy (fun ph -> ph.PhotoNum) |> Seq.tryHead
-                            match firstPhoto with
+                        let photos = p.Photos |> Seq.sortBy (fun ph -> ph.PhotoNum) |> Seq.toArray
+                        if photos.Length = 0 then
+                            None, None
+                        else
+                            match photos |> Array.tryFind (fun ph -> ph.IsFavorite) with
                             | Some photo -> Some(photo.PhotoNum), Some(photo.FileName)
-                            | None -> None, None
+                            | None -> Some(photos.[0].PhotoNum), Some(photos.[0].FileName)
 
                     {
                         Id = p.Id
@@ -74,129 +100,49 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                         Location = p.Location
                         Country = p.Country
                         Photos = p.Photos.Count
-                        TripDates = {
-                            StartDate = p.StartDate
-                            EndDate = endDate
-                            IsSingleDay = isSingleDay
-                            DisplayText = displayText
-                        }
+                        TripDates = tripDates
                         FavoritePhotoNum = favoritePhotoNum
                         FavoritePhotoFileName = favoritePhotoFileName
                     }
                 )
-                |> List.ofSeq
+                |> Seq.toList
         }
 
-    // Get place by ID with all photos
     member this.GetPlaceByIdAsync(id: int) =
         task {
             let! place =
                 context.Places
+                    .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
                     .FirstOrDefaultAsync(fun p -> p.Id = id)
 
             if isNull place then
                 return None
             else
-                let endDate =
-                    if isNull place.EndDate then None
-                    else Some(place.EndDate)
-
-                let isSingleDay = isNull place.EndDate
-
-                let displayText = generateDisplayText place.StartDate endDate
-
-                let photos =
-                    place.Photos
-                        .OrderBy(fun ph -> ph.PhotoNum :> obj)
-                        .Select(fun ph -> {
-                            Num = ph.PhotoNum
-                            Slug = ph.Slug
-                            FileName = ph.FileName
-                            IsFavorite = ph.IsFavorite
-                        })
-                        |> List.ofSeq
-
-                let placeDetail = {
-                    PlaceId = place.Id
-                    PlaceSlug = place.Slug
-                    Name = place.Name
-                    Location = place.Location
-                    Country = place.Country
-                    TotalPhotos = place.Photos.Count
-                    Favorites = place.Favorites
-                    TripDates = {
-                        StartDate = place.StartDate
-                        EndDate = endDate
-                        IsSingleDay = isSingleDay
-                        DisplayText = displayText
-                    }
-                    Photos = photos
-                }
-
-                return Some(placeDetail)
+                return Some(toPlaceDetailPage place)
         }
 
-    // Get place by slug with all photos
     member this.GetPlaceBySlugAsync(slug: string) =
         task {
             let! place =
                 context.Places
+                    .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
                     .FirstOrDefaultAsync(fun p -> p.Slug = slug)
 
             if isNull place then
                 return None
             else
-                let endDate =
-                    if isNull place.EndDate then None
-                    else Some(place.EndDate)
-
-                let isSingleDay = isNull place.EndDate
-
-                let displayText = generateDisplayText place.StartDate endDate
-
-                let photos =
-                    place.Photos
-                        .OrderBy(fun ph -> ph.PhotoNum :> obj)
-                        .Select(fun ph -> {
-                            Num = ph.PhotoNum
-                            Slug = ph.Slug
-                            FileName = ph.FileName
-                            IsFavorite = ph.IsFavorite
-                        })
-                        |> List.ofSeq
-
-                let placeDetail = {
-                    PlaceId = place.Id
-                    PlaceSlug = place.Slug
-                    Name = place.Name
-                    Location = place.Location
-                    Country = place.Country
-                    TotalPhotos = place.Photos.Count
-                    Favorites = place.Favorites
-                    TripDates = {
-                        StartDate = place.StartDate
-                        EndDate = endDate
-                        IsSingleDay = isSingleDay
-                        DisplayText = displayText
-                    }
-                    Photos = photos
-                }
-
-                return Some(placeDetail)
+                return Some(toPlaceDetailPage place)
         }
 
-    // Create new place
     member this.CreatePlaceAsync(name: string, location: string, country: string, startDate: string, endDate: string option) =
         task {
-            // Acquire lock to prevent duplicate slug race condition
             let! _ = createPlaceLock.WaitAsync()
 
             try
                 let place = Place()
 
-                // Generate unique slug
                 let slugExists (slug: string) =
                     context.Places.Any(fun p -> p.Slug = slug)
                 place.Slug <- slugGenerator.GenerateUniqueSlug(slugExists)
@@ -216,17 +162,18 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 context.Places.Add(place) |> ignore
                 let! _ = context.SaveChangesAsync()
 
+                logger.LogInformation("Created place {PlaceId}: {Name} ({Slug})", place.Id, place.Name, place.Slug)
                 return place.Id
             finally
                 createPlaceLock.Release() |> ignore
         }
 
-    // Update existing place
     member this.UpdatePlaceAsync(id: int, name: string, location: string, country: string, startDate: string, endDate: string option) =
         task {
             let! place = context.Places.FindAsync(id)
 
             if isNull place then
+                logger.LogWarning("Place not found for update: {PlaceId}", id)
                 return false
             else
                 place.Name <- name
@@ -240,23 +187,25 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 place.UpdatedAt <- DateTime.UtcNow
 
                 let! _ = context.SaveChangesAsync()
+                logger.LogInformation("Updated place {PlaceId}: {Name}", id, name)
                 return true
         }
 
-    // Delete place (photos will be cascade deleted)
     member this.DeletePlaceAsync(id: int) =
         task {
             let! place = context.Places.FindAsync(id)
 
             if isNull place then
+                logger.LogWarning("Place not found for deletion: {PlaceId}", id)
                 return false
             else
+                let placeName = place.Name
                 context.Places.Remove(place) |> ignore
                 let! _ = context.SaveChangesAsync()
+                logger.LogInformation("Deleted place {PlaceId}: {Name}", id, placeName)
                 return true
         }
 
-    // Increment favorites count
     member this.IncrementFavoritesAsync(id: int) =
         task {
             let! place = context.Places.FindAsync(id)
@@ -265,5 +214,18 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 place.Favorites <- place.Favorites + 1
                 place.UpdatedAt <- DateTime.UtcNow
                 let! _ = context.SaveChangesAsync()
+                logger.LogDebug("Incremented favorites for place {PlaceId} to {Count}", id, place.Favorites)
                 return ()
+        }
+
+    member this.GetTotalFavoritesAsync() =
+        task {
+            let! total = context.Places.SumAsync(fun p -> p.Favorites)
+            return total
+        }
+
+    member this.GetPlaceCountAsync() =
+        task {
+            let! count = context.Places.CountAsync()
+            return count
         }
