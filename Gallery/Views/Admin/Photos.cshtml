@@ -11,12 +11,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"]</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/css/fonts.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true" />
 
     <!-- FilePond CSS -->
-    <link href="https://unpkg.com/filepond@@4/dist/filepond.css" rel="stylesheet" />
-    <link href="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.css" rel="stylesheet" />
+    <link rel="stylesheet" href="~/lib/filepond/filepond.min.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/lib/filepond/filepond-plugin-image-preview.min.css" asp-append-version="true" />
 
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -185,11 +185,11 @@
     </div>
 
     <!-- FilePond Scripts -->
-    <script src="https://unpkg.com/filepond@@4/dist/filepond.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
-    <script src="https://unpkg.com/filepond-plugin-image-validate-size/dist/filepond-plugin-image-validate-size.js"></script>
+    <script src="~/lib/filepond/filepond.min.js" asp-append-version="true"></script>
+    <script src="~/lib/filepond/filepond-plugin-image-preview.min.js" asp-append-version="true"></script>
+    <script src="~/lib/filepond/filepond-plugin-file-validate-type.min.js" asp-append-version="true"></script>
+    <script src="~/lib/filepond/filepond-plugin-file-validate-size.min.js" asp-append-version="true"></script>
+    <script src="~/lib/filepond/filepond-plugin-image-validate-size.min.js" asp-append-version="true"></script>
 
     <script>
         const placeId = @Model.PlaceId;

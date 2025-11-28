@@ -11,8 +11,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"]</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/css/fonts.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true" />
     <style>
         /* Changed default body font to Sans (Inter) */
         body { font-family: 'Inter', sans-serif; }
@@ -25,28 +25,29 @@
 
     <div class="max-w-4xl mx-auto">
 
-        <header class="flex justify-between items-end border-b border-gray-100 pb-6 mb-8">
-            <div>
-                <h1 class="text-2xl font-medium tracking-tight text-black">Dashboard</h1>
+    <header class="flex justify-between items-end border-b border-gray-100 pb-6 mb-8">
+        <div>
+            <h1 class="text-2xl font-medium tracking-tight text-black">Dashboard</h1>
 
-                <div class="flex gap-4 mt-2 text-[10px] text-gray-400 uppercase tracking-widest font-mono">
-                    <span>@Model.TotalPlaces Places</span>
-                    <span>@Model.TotalPhotos Photos</span>
-                </div>
+            <div class="flex gap-4 mt-2 text-[10px] text-gray-400 uppercase tracking-widest font-mono">
+                <span>@Model.TotalPlaces Places</span>
+                <span>@Model.TotalPhotos Photos</span>
             </div>
+        </div>
 
-            <div class="flex items-center gap-6">
-                <a href="/admin/create" class="text-[10px] uppercase tracking-widest font-mono hover:text-gray-500 transition-colors">
-                    + New Entry
-                </a>
-                <form asp-action="Logout" method="post" class="inline">
-                    @Html.AntiForgeryToken()
-                    <button type="submit" class="text-[10px] uppercase tracking-widest font-mono text-red-400 hover:text-red-600 transition-colors">
-                        Logout
-                    </button>
-                </form>
-            </div>
-        </header>
+        <div class="flex items-center gap-6">
+            <a href="/admin/create" class="inline-flex items-center px-4 py-2 bg-black text-white text-[10px] uppercase tracking-widest font-mono hover:bg-gray-800 transition-colors rounded shadow-sm">
+                + New Entry
+            </a>
+
+            <form asp-action="Logout" method="post" class="inline">
+                @Html.AntiForgeryToken()
+                <button type="submit" class="text-[10px] uppercase tracking-widest font-mono text-red-400 hover:text-red-600 transition-colors">
+                    Logout
+                </button>
+            </form>
+        </div>
+    </header>
 
         <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">

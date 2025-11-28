@@ -11,8 +11,6 @@ Gallery/wwwroot/css/site.compiled.css
 Gallery/node_modules/
 Gallery/package-lock.json
 node_modules/
-package-lock.json
-package.json
 .idea
 
 # SQLite Database
