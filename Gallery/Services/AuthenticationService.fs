@@ -5,15 +5,19 @@ open System.Linq
 open System.Security.Cryptography
 open System.Threading
 open Microsoft.EntityFrameworkCore
+open Microsoft.Extensions.Logging
 open OtpNet
 open QRCoder
 open Gallery.Data
 open Gallery.Models
 
-type AuthenticationService(context: GalleryDbContext) =
+type AuthenticationService(context: GalleryDbContext, logger: ILogger<AuthenticationService>) =
 
     // Static lock to prevent race conditions when creating users
     static let createUserLock = new SemaphoreSlim(1, 1)
+
+    // Generic error message for all authentication failures to prevent enumeration
+    let genericAuthError = "Invalid credentials"
 
     // Generate a random TOTP secret
     member _.GenerateTotpSecret() =
@@ -81,7 +85,9 @@ type AuthenticationService(context: GalleryDbContext) =
                 let! existingUser = this.GetAdminUserAsync(username)
 
                 match existingUser with
-                | Some _ -> return Error "User already exists"
+                | Some _ ->
+                    logger.LogWarning("Attempted to create duplicate admin user: {Username}", username)
+                    return Error "User already exists"
                 | None ->
                     let user = AdminUser()
                     user.Username <- username
@@ -91,6 +97,7 @@ type AuthenticationService(context: GalleryDbContext) =
 
                     context.AdminUsers.Add(user) |> ignore
                     let! _ = context.SaveChangesAsync()
+                    logger.LogInformation("Created admin user: {Username}", username)
                     return Ok user.Id
             finally
                 createUserLock.Release() |> ignore
@@ -102,7 +109,9 @@ type AuthenticationService(context: GalleryDbContext) =
             let! userOpt = this.GetAdminUserAsync(username)
 
             match userOpt with
-            | None -> return Error "User not found"
+            | None ->
+                logger.LogWarning("Attempted to enable TOTP for non-existent user: {Username}", username)
+                return Error "User not found"
             | Some user ->
                 if user.TotpEnabled && not (String.IsNullOrEmpty(user.TotpSecret)) then
                     return Error "TOTP already enabled"
@@ -112,6 +121,7 @@ type AuthenticationService(context: GalleryDbContext) =
                     user.TotpEnabled <- true
 
                     let! _ = context.SaveChangesAsync()
+                    logger.LogInformation("TOTP enabled for user: {Username}", username)
                     return Ok secret
         }
 
@@ -121,41 +131,58 @@ type AuthenticationService(context: GalleryDbContext) =
             let! userOpt = this.GetAdminUserAsync(username)
 
             match userOpt with
-            | None -> return false
+            | None ->
+                logger.LogWarning("Attempted to disable TOTP for non-existent user: {Username}", username)
+                return false
             | Some user ->
                 user.TotpSecret <- null
                 user.TotpEnabled <- false
 
                 let! _ = context.SaveChangesAsync()
+                logger.LogInformation("TOTP disabled for user: {Username}", username)
                 return true
         }
 
     // Authenticate user with password and optional TOTP
+    // SECURITY: Uses consistent error messages and timing to prevent enumeration attacks
     member this.AuthenticateAsync(username: string, password: string, totpCode: string option) =
         task {
             let! userOpt = this.GetAdminUserAsync(username)
 
             match userOpt with
-            | None -> return Error "Invalid credentials"
+            | None ->
+                // User doesn't exist - but we still hash a dummy password to prevent timing attacks
+                let _ = this.VerifyPassword(password, this.HashPassword("dummy"))
+                logger.LogWarning("Authentication failed: user not found - {Username}", username)
+                return Error genericAuthError
+
             | Some user ->
                 // Verify password
                 if not (this.VerifyPassword(password, user.PasswordHash)) then
-                    return Error "Invalid credentials"
+                    logger.LogWarning("Authentication failed: invalid password for user - {Username}", username)
+                    return Error genericAuthError
                 else
                     // Check TOTP if enabled
                     if user.TotpEnabled then
                         match totpCode with
-                        | None -> return Error "TOTP code required"
+                        | None ->
+                            // TOTP required but not provided
+                            // SECURITY: We return the same generic error to not reveal that password was correct
+                            logger.LogWarning("Authentication failed: TOTP required but not provided for user - {Username}", username)
+                            return Error genericAuthError
                         | Some code ->
                             if not (String.IsNullOrEmpty(user.TotpSecret)) && this.VerifyTotpCode(user.TotpSecret, code) then
                                 user.LastLoginAt <- DateTime.UtcNow
                                 let! _ = context.SaveChangesAsync()
+                                logger.LogInformation("Authentication successful for user: {Username}", username)
                                 return Ok user
                             else
-                                return Error "Invalid TOTP code"
+                                logger.LogWarning("Authentication failed: invalid TOTP code for user - {Username}", username)
+                                return Error genericAuthError
                     else
                         user.LastLoginAt <- DateTime.UtcNow
                         let! _ = context.SaveChangesAsync()
+                        logger.LogInformation("Authentication successful for user: {Username}", username)
                         return Ok user
         }
 

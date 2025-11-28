@@ -14,12 +14,14 @@
         <Compile Include="Services/DummyDataService.fs" />
         <Compile Include="Services/SlugGeneratorService.fs" />
         <Compile Include="Services/ImageProcessingService.fs" />
+        <Compile Include="Services/InputValidationService.fs" />
         <Compile Include="Services/PlaceService.fs" />
         <Compile Include="Services/PathValidationService.fs" />
         <Compile Include="Services/FileValidationService.fs" />
         <Compile Include="Services/MalwareScanningService.fs" />
         <Compile Include="Services/PhotoService.fs" />
         <Compile Include="Services/AuthenticationService.fs" />
+        <Compile Include="Middleware/SecurityHeadersMiddleware.fs" />
         <Compile Include="Data\SeedData.fs" />
         <Compile Include="Controllers/HomeController.fs" />
         <Compile Include="Controllers/PlaceController.fs" />

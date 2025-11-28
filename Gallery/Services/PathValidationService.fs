@@ -3,8 +3,9 @@ namespace Gallery.Services
 open System
 open System.IO
 open Microsoft.AspNetCore.Hosting
+open Microsoft.Extensions.Logging
 
-type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
+type PathValidationService(webHostEnvironment: IWebHostEnvironment, logger: ILogger<PathValidationService>) =
 
     // Get the absolute path of wwwroot
     let wwwRootPath = Path.GetFullPath(webHostEnvironment.WebRootPath)
@@ -12,24 +13,31 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
     // Validate that an integer ID is within safe bounds
     member _.ValidateId(id: int, paramName: string) : Result<int, string> =
         if id < 1 then
+            logger.LogWarning("Invalid {ParamName}: value {Value} is less than 1", paramName, id)
             Error (sprintf "%s must be greater than 0" paramName)
         elif id > 999999 then
-            Error (sprintf "%s exceeds maximum allowed value (999999)" paramName)
+            logger.LogWarning("Invalid {ParamName}: value {Value} exceeds maximum", paramName, id)
+            Error (sprintf "%s exceeds maximum allowed value" paramName)
         else
             Ok id
 
     // Sanitize path component (remove any path traversal attempts)
     member _.SanitizePathComponent(pathComponent: string) : Result<string, string> =
         if String.IsNullOrWhiteSpace(pathComponent) then
-            Error "Path component cannot be empty"
+            logger.LogWarning("Path validation failed: empty path component")
+            Error "Invalid path"
         elif pathComponent.Contains("..") then
-            Error "Path component contains invalid sequence (..)"
+            logger.LogWarning("Path traversal attempt detected: path component contains '..' sequence: {PathComponent}", pathComponent)
+            Error "Invalid path"
         elif pathComponent.Contains("/") || pathComponent.Contains("\\") then
-            Error "Path component contains invalid path separator"
+            logger.LogWarning("Path traversal attempt detected: path component contains separator: {PathComponent}", pathComponent)
+            Error "Invalid path"
         elif pathComponent.Contains(":") then
-            Error "Path component contains invalid character (:)"
+            logger.LogWarning("Path validation failed: path component contains colon: {PathComponent}", pathComponent)
+            Error "Invalid path"
         elif pathComponent.StartsWith(".") then
-            Error "Path component cannot start with dot"
+            logger.LogWarning("Path validation failed: path component starts with dot: {PathComponent}", pathComponent)
+            Error "Invalid path"
         else
             Ok pathComponent
 
@@ -41,11 +49,14 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
 
             // Check if the path starts with wwwroot path
             if not (normalizedPath.StartsWith(wwwRootPath, StringComparison.OrdinalIgnoreCase)) then
-                Error (sprintf "Path is outside allowed directory. Attempted path: %s" normalizedPath)
+                logger.LogWarning("Path traversal attempt blocked: attempted path {AttemptedPath} is outside wwwroot {WwwRoot}", normalizedPath, wwwRootPath)
+                Error "Access denied"
             else
                 Ok normalizedPath
         with
-        | ex -> Error (sprintf "Invalid path: %s" ex.Message)
+        | ex ->
+            logger.LogError(ex, "Path validation error for path: {Path}", fullPath)
+            Error "Invalid path"
 
     // Build and validate photo directory path
     member this.GetValidatedPhotoDirectory(placeId: int) : Result<string, string> =
@@ -94,7 +105,8 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
                     if File.Exists(validPath) then
                         Ok validPath
                     else
-                        Error (sprintf "File does not exist: %s" fileName)
+                        logger.LogWarning("File not found: {FileName} for placeId {PlaceId}", validFileName, validPlaceId)
+                        Error "File not found"
 
     // Check if path exists and is safe
     member this.PathExistsAndIsSafe(fullPath: string) : Result<bool, string> =
@@ -110,9 +122,12 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
             try
                 if not (Directory.Exists(validPath)) then
                     Directory.CreateDirectory(validPath) |> ignore
+                    logger.LogInformation("Created directory for placeId {PlaceId}", placeId)
                 Ok validPath
             with
-            | ex -> Error (sprintf "Failed to create directory: %s" ex.Message)
+            | ex ->
+                logger.LogError(ex, "Failed to create directory for placeId {PlaceId}", placeId)
+                Error "Failed to create directory"
 
     // Delete directory safely (with all contents)
     member this.DeleteDirectorySafely(placeId: int) : Result<unit, string> =
@@ -122,10 +137,13 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
             try
                 if Directory.Exists(validPath) then
                     Directory.Delete(validPath, true)
+                    logger.LogInformation("Deleted directory for placeId {PlaceId}", placeId)
                 Ok ()
             with
-            | ex -> Error (sprintf "Failed to delete directory: %s" ex.Message)
+            | ex ->
+                logger.LogError(ex, "Failed to delete directory for placeId {PlaceId}", placeId)
+                Error "Failed to delete directory"
 
-    // Get info for debugging/logging
+    // Get info for debugging/logging (internal use only)
     member _.GetSecurityInfo() =
         sprintf "Protected Root: %s" wwwRootPath

@@ -20,6 +20,7 @@ open Microsoft.AspNetCore.Http
 open Microsoft.EntityFrameworkCore
 open Gallery.Data
 open Gallery.Services
+open Gallery.Middleware
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Authentication.OpenIdConnect
 open Microsoft.IdentityModel.Protocols.OpenIdConnect
@@ -53,6 +54,7 @@ module Program =
         builder.Services.AddScoped<PathValidationService>() |> ignore
         builder.Services.AddScoped<FileValidationService>() |> ignore
         builder.Services.AddScoped<MalwareScanningService>() |> ignore
+        builder.Services.AddScoped<InputValidationService>() |> ignore
 
         // Add Authentication services based on configuration
         let authMode = builder.Configuration.["Authentication:Mode"]
@@ -143,6 +145,9 @@ module Program =
         app.UseStatusCodePagesWithReExecute("/404") |> ignore
 
         app.UseHttpsRedirection()
+
+        // Add security headers (CSP, X-Frame-Options, etc.)
+        app.UseSecurityHeaders() |> ignore
 
         app.UseStaticFiles()
         app.UseRouting()

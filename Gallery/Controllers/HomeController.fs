@@ -13,8 +13,10 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
     // 1. Root Route
     [<Route("")>]
     member this.Index () =
-        let places = placeService.GetAllPlacesAsync().Result
-        this.View(places)
+        task {
+            let! places = placeService.GetAllPlacesAsync()
+            return this.View(places) :> IActionResult
+        }
 
     [<Route("error")>]
     [<ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)>]

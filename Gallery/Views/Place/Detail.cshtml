@@ -193,7 +193,7 @@
             function announceNavigation(direction) {
                 const photoNum = @Model.PhotoNum;
                 const totalPhotos = @Model.TotalPhotos;
-                const placeName = '@Html.Raw(Model.PlaceName.Replace("'", "\\'"))';
+                const placeName = @Json.Serialize(Model.PlaceName);
 
                 let message = '';
                 switch(direction) {

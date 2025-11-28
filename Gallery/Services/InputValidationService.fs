@@ -7,27 +7,27 @@ type InputValidationService() =
 
     // Common dangerous patterns to detect
     let sqlInjectionPatterns = [
-        @"(\bOR\b|\bAND\b).*(=|<|>)" // OR/AND with comparison
-        @"('|\"")\s*(OR|AND)\s*('|\"").*=.*('|\"").*" // SQL injection attempts
-        @"(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+" // SQL keywords
-        @"(--|#|\/\*|\*\/)" // SQL comments
-        @"(xp_|sp_|0x[0-9a-fA-F]+)" // SQL Server commands and hex
+        @"(\bOR\b|\bAND\b).*(=|<|>)"
+        @"('|\"")\s*(OR|AND)\s*('|\"").*=.*('|\"").*"
+        @"(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+"
+        @"(--|#|\/\*|\*\/)"
+        @"(xp_|sp_|0x[0-9a-fA-F]+)"
     ]
 
     let xssPatterns = [
-        @"<script[^>]*>.*?</script>" // Script tags
-        @"javascript:" // JavaScript protocol
-        @"on\w+\s*=" // Event handlers (onclick, onload, etc)
-        @"<iframe[^>]*>" // iframes
-        @"<object[^>]*>" // objects
-        @"<embed[^>]*>" // embeds
+        @"<script[^>]*>.*?</script>"
+        @"javascript:"
+        @"on\w+\s*="
+        @"<iframe[^>]*>"
+        @"<object[^>]*>"
+        @"<embed[^>]*>"
     ]
 
     let pathTraversalPatterns = [
-        @"\.\." // Double dots
-        @"(\\|/)\.\.(\\|/)" // ../ or ..\
-        @"%2e%2e" // URL encoded ..
-        @"\.{2,}" // Multiple dots
+        @"\.\."
+        @"(\\|/)\.\.(\\|/)"
+        @"%2e%2e"
+        @"\.{2,}"
     ]
 
     // Check for SQL injection attempts
@@ -208,7 +208,7 @@ type InputValidationService() =
             Ok id
 
     // Comprehensive place form validation
-    member this.ValidatePlaceForm(name: string, location: string, country: string, startDate: string, endDate: string) : Result<(string * string * string * string * string option), string list> =
+    member this.ValidatePlaceForm(name: string, location: string, country: string, startDate: string, endDate: string) : Result<string * string * string * string * string option, string list> =
         let nameResult = this.ValidatePlaceName(name)
         let locationResult = this.ValidateLocation(location)
         let countryResult = this.ValidateCountry(country)
@@ -216,23 +216,22 @@ type InputValidationService() =
         let endDateResult = this.ValidateOptionalIsoDate(endDate, "End date")
 
         // Collect all errors
-        let errors = [
-            match nameResult with Error msg -> Some msg | _ -> None
-            match locationResult with Error msg -> Some msg | _ -> None
-            match countryResult with Error msg -> Some msg | _ -> None
-            match startDateResult with Error msg -> Some msg | _ -> None
-            match endDateResult with Error msg -> Some msg | _ -> None
-        ] |> List.choose id
+        let errors =
+            [ match nameResult with | Error msg -> yield msg | _ -> ()
+              match locationResult with | Error msg -> yield msg | _ -> ()
+              match countryResult with | Error msg -> yield msg | _ -> ()
+              match startDateResult with | Error msg -> yield msg | _ -> ()
+              match endDateResult with | Error msg -> yield msg | _ -> () ]
 
         if not errors.IsEmpty then
             Error errors
         else
             // All validations passed, extract values
-            let validName = match nameResult with Ok v -> v | _ -> ""
-            let validLocation = match locationResult with Ok v -> v | _ -> ""
-            let validCountry = match countryResult with Ok v -> v | _ -> ""
-            let validStartDate = match startDateResult with Ok v -> v | _ -> ""
-            let validEndDate = match endDateResult with Ok v -> v | _ -> None
+            let validName = match nameResult with | Ok v -> v | _ -> ""
+            let validLocation = match locationResult with | Ok v -> v | _ -> ""
+            let validCountry = match countryResult with | Ok v -> v | _ -> ""
+            let validStartDate = match startDateResult with | Ok v -> v | _ -> ""
+            let validEndDate = match endDateResult with | Ok v -> v | _ -> None
 
             // Validate date range
             match this.ValidateDateRange(validStartDate, validEndDate) with

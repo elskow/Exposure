@@ -15,10 +15,12 @@ type PlaceController(placeService: PlaceService) =
     // ---------------------------------------------------------
     [<Route("places/{slug}")>]
     member this.Index (slug: string) =
-        let placeDetail = placeService.GetPlaceBySlugAsync(slug).Result
-        match placeDetail with
-        | Some detail -> this.View(detail) :> IActionResult
-        | None -> this.NotFound() :> IActionResult
+        task {
+            let! placeDetail = placeService.GetPlaceBySlugAsync(slug)
+            match placeDetail with
+            | Some detail -> return this.View(detail) :> IActionResult
+            | None -> return this.NotFound() :> IActionResult
+        }
 
     // ---------------------------------------------------------
     // URL: /places/{placeSlug}/photos/{photoSlug}
@@ -26,46 +28,48 @@ type PlaceController(placeService: PlaceService) =
     // ---------------------------------------------------------
     [<Route("places/{placeSlug}/photos/{photoSlug}")>]
     member this.Detail (placeSlug: string, photoSlug: string) =
-        let placeDetailOpt = placeService.GetPlaceBySlugAsync(placeSlug).Result
-        match placeDetailOpt with
-        | Some placeDetail ->
-            let totalPhotos = placeDetail.TotalPhotos
+        task {
+            let! placeDetailOpt = placeService.GetPlaceBySlugAsync(placeSlug)
+            match placeDetailOpt with
+            | Some placeDetail ->
+                let totalPhotos = placeDetail.TotalPhotos
 
-            // Find current photo by slug
-            let currentPhoto = placeDetail.Photos |> List.tryFind (fun p -> p.Slug = photoSlug)
-            match currentPhoto with
-            | None -> this.NotFound() :> IActionResult
-            | Some photo ->
-                // Find previous and next photos
-                let prevPhotoOpt =
-                    if photo.Num > 1 then
-                        placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num - 1)
-                    else None
-                let nextPhotoOpt =
-                    if photo.Num < totalPhotos then
-                        placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num + 1)
-                    else None
+                // Find current photo by slug
+                let currentPhoto = placeDetail.Photos |> List.tryFind (fun p -> p.Slug = photoSlug)
+                match currentPhoto with
+                | None -> return this.NotFound() :> IActionResult
+                | Some photo ->
+                    // Find previous and next photos
+                    let prevPhotoOpt =
+                        if photo.Num > 1 then
+                            placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num - 1)
+                        else None
+                    let nextPhotoOpt =
+                        if photo.Num < totalPhotos then
+                            placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num + 1)
+                        else None
 
-                let uniqueId = sprintf "PH/%X" (photo.Num * 12345)
+                    let uniqueId = sprintf "PH/%X" (photo.Num * 12345)
 
-                let photoModel = {
-                    PlaceId = placeDetail.PlaceId
-                    PlaceSlug = placeDetail.PlaceSlug
-                    PhotoNum = photo.Num
-                    PhotoSlug = photo.Slug
-                    FileName = photo.FileName
-                    TotalPhotos = totalPhotos
-                    PlaceName = placeDetail.Name
-                    Location = placeDetail.Location
-                    Country = placeDetail.Country
-                    TripDates = placeDetail.TripDates
-                    UniqueId = uniqueId
-                    PrevPhoto = prevPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
-                    NextPhoto = nextPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
-                    PrevPhotoSlug = prevPhotoOpt |> Option.map (fun p -> p.Slug)
-                    NextPhotoSlug = nextPhotoOpt |> Option.map (fun p -> p.Slug)
-                    PrevPhotoFileName = prevPhotoOpt |> Option.map (fun p -> p.FileName)
-                    NextPhotoFileName = nextPhotoOpt |> Option.map (fun p -> p.FileName)
-                }
-                this.View(photoModel) :> IActionResult
-        | None -> this.NotFound() :> IActionResult
+                    let photoModel = {
+                        PlaceId = placeDetail.PlaceId
+                        PlaceSlug = placeDetail.PlaceSlug
+                        PhotoNum = photo.Num
+                        PhotoSlug = photo.Slug
+                        FileName = photo.FileName
+                        TotalPhotos = totalPhotos
+                        PlaceName = placeDetail.Name
+                        Location = placeDetail.Location
+                        Country = placeDetail.Country
+                        TripDates = placeDetail.TripDates
+                        UniqueId = uniqueId
+                        PrevPhoto = prevPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
+                        NextPhoto = nextPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
+                        PrevPhotoSlug = prevPhotoOpt |> Option.map (fun p -> p.Slug)
+                        NextPhotoSlug = nextPhotoOpt |> Option.map (fun p -> p.Slug)
+                        PrevPhotoFileName = prevPhotoOpt |> Option.map (fun p -> p.FileName)
+                        NextPhotoFileName = nextPhotoOpt |> Option.map (fun p -> p.FileName)
+                    }
+                    return this.View(photoModel) :> IActionResult
+            | None -> return this.NotFound() :> IActionResult
+        }
