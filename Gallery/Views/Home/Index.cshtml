@@ -52,13 +52,17 @@
 
                         <td class="py-4 md:py-3 align-middle pr-3" role="cell">
                             <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px] border border-black/5">
-                                @if (Microsoft.FSharp.Core.FSharpOption<int>.get_IsSome(place.FavoritePhotoNum))
+                                @if (Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(place.FavoritePhotoFileName))
                                 {
-                                    <img src="/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).jpg"
+                                    var fileName = place.FavoritePhotoFileName.Value;
+                                    var extension = System.IO.Path.GetExtension(fileName);
+                                    var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(fileName);
+                                    var thumbFileName = nameWithoutExt + "-thumb" + extension;
+                                    <img src="/images/places/@(place.Id)/@thumbFileName"
                                          alt="Preview of @place.Name"
                                          class="w-full h-full object-cover"
                                          loading="lazy"
-                                         onerror="this.src='/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).png'; this.onerror=function(){this.src='/images/places/@(place.Id)/@(place.FavoritePhotoNum.Value).jpeg'; this.onerror=null;};" />
+                                         onerror="this.src='/images/places/@(place.Id)/@(place.FavoritePhotoFileName.Value)';" />
                                 }
                                 else
                                 {
@@ -68,7 +72,7 @@
                         </td>
 
                         <td class="py-4 md:py-3 align-middle" role="cell">
-                            <a href="@Url.Action("Index", "Place", new { id = place.Id })"
+                            <a href="@Url.Action("Index", "Place", new { slug = place.Slug })"
                                class="flex flex-col justify-center focus:outline-2 focus:outline-offset-2 focus:outline-black rounded -mx-2 px-2 -my-2 py-2"
                                aria-label="View @place.Name gallery - @place.Location, @place.Country - @place.Photos photos">
                                 <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black group-focus-within:text-black transition-colors">

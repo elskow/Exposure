@@ -13,6 +13,11 @@
     <title>@ViewData["Title"]</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+    <!-- FilePond CSS -->
+    <link href="https://unpkg.com/filepond@@4/dist/filepond.css" rel="stylesheet" />
+    <link href="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.css" rel="stylesheet" />
+
     <style>
         body { font-family: 'Inter', sans-serif; }
         .font-mono { font-family: 'DM Mono', monospace; }
@@ -76,7 +81,7 @@
                     <span>@Model.TotalPhotos Photos</span>
                 </div>
             </div>
-            <a href="/admin/edit/@Model.PlaceId" class="text-[10px] uppercase tracking-widest font-mono hover:text-gray-500 transition-colors">
+            <a href="/admin/edit/@Model.PlaceSlug" class="text-[10px] uppercase tracking-widest font-mono hover:text-gray-500 transition-colors">
                 &larr; Back to Edit
             </a>
         </header>
@@ -84,56 +89,16 @@
         <!-- Anti-forgery token for AJAX requests -->
         @Html.AntiForgeryToken()
 
-        <!-- Upload Section -->
-        <div class="mb-8 border-2 border-dashed border-gray-300 rounded-lg p-8 text-center transition-colors hover:border-gray-400"
-             id="dropzone"
-             ondrop="handleDrop(event)"
-             ondragover="handleDragOver(event)"
-             ondragleave="handleDragLeave(event)">
-            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8"
-                      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <p class="mt-4 text-sm font-medium text-gray-900">
-                Drag and drop photos here
-            </p>
-            <p class="mt-1 text-xs text-gray-500">
-                or click to select files
-            </p>
-            <input type="file" id="fileInput" multiple accept="image/*" class="hidden" onchange="handleFileSelect(event)">
-            <button type="button" onclick="document.getElementById('fileInput').click()"
-                    class="mt-4 inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
-                <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                </svg>
-                Select Files
-            </button>
-        </div>
-
-        <!-- Upload Queue -->
-        <div id="uploadQueue" class="mb-8 hidden">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="text-sm font-medium text-gray-900">Upload Queue</h2>
-                <button type="button" onclick="clearQueue()" class="text-xs text-gray-500 hover:text-gray-700 font-mono uppercase tracking-wider">
-                    Clear All
-                </button>
-            </div>
-            <div id="fileList" class="space-y-3 mb-4">
-                <!-- File items will be inserted here -->
-            </div>
-            <div class="flex gap-3">
-                <button type="button" onclick="startUpload()" id="uploadBtn"
-                        class="flex-1 inline-flex justify-center items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
-                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
-                    Upload <span id="fileCount" class="ml-1 font-mono">0</span> Files
-                </button>
-                <button type="button" onclick="cancelUpload()"
-                        class="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black transition-all">
-                    Cancel
-                </button>
-            </div>
+        <!-- Upload Section with FilePond -->
+        <div class="mb-8">
+            <h2 class="text-sm font-medium text-gray-900 mb-4">Upload Photos</h2>
+            <input type="file"
+                   id="fileInput"
+                   class="filepond"
+                   name="filepond"
+                   multiple
+                   data-max-file-size="50MB"
+                   data-max-files="50">
         </div>
 
         <!-- Photo Grid -->
@@ -167,9 +132,14 @@
                         <div class="photo-item group" data-photo-num="@photo.Num" draggable="true"
                              ondragstart="handlePhotoStart(event)"
                              ondragend="handlePhotoEnd(event)">
-                            <img src="/images/places/@(Model.PlaceId)/@(photo.Num).jpg"
+                            @{
+                                var extension = System.IO.Path.GetExtension(photo.FileName);
+                                var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(photo.FileName);
+                                var smallFileName = nameWithoutExt + "-small" + extension;
+                            }
+                            <img src="/images/places/@(Model.PlaceId)/@smallFileName"
                                  alt="Photo @photo.Num"
-                                 onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.Num).png'; this.onerror=function(){this.src='/images/places/@(Model.PlaceId)/@(photo.Num).jpeg';};" />
+                                 onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.FileName)';" />
 
                             @if (photo.IsFavorite)
                             {
@@ -214,212 +184,111 @@
         }
     </div>
 
+    <!-- FilePond Scripts -->
+    <script src="https://unpkg.com/filepond@@4/dist/filepond.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-image-preview/dist/filepond-plugin-image-preview.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-file-validate-type/dist/filepond-plugin-file-validate-type.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-file-validate-size/dist/filepond-plugin-file-validate-size.js"></script>
+    <script src="https://unpkg.com/filepond-plugin-image-validate-size/dist/filepond-plugin-image-validate-size.js"></script>
+
     <script>
-        let uploadQueue = [];
         const placeId = @Model.PlaceId;
 
-        // Drag and drop for file upload
-        function handleDragOver(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            document.getElementById('dropzone').classList.add('drag-over');
-        }
+        // Register FilePond plugins
+        FilePond.registerPlugin(
+            FilePondPluginImagePreview,
+            FilePondPluginFileValidateType,
+            FilePondPluginFileValidateSize,
+            FilePondPluginImageValidateSize
+        );
 
-        function handleDragLeave(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            document.getElementById('dropzone').classList.remove('drag-over');
-        }
+        // Get anti-forgery token
+        const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
 
-        function handleDrop(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            document.getElementById('dropzone').classList.remove('drag-over');
+        // Initialize FilePond
+        const inputElement = document.querySelector('#fileInput');
+        const pond = FilePond.create(inputElement, {
+            allowMultiple: true,
+            maxFiles: 50,
+            maxFileSize: '50MB',
+            acceptedFileTypes: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'],
+            imageValidateSizeMinWidth: 100,
+            imageValidateSizeMinHeight: 100,
+            imageValidateSizeMaxWidth: 10000,
+            imageValidateSizeMaxHeight: 10000,
+            labelIdle: 'Drag & Drop your photos or <span class="filepond--label-action">Browse</span>',
+            labelFileProcessing: 'Uploading',
+            labelFileProcessingComplete: 'Upload complete',
+            labelFileProcessingAborted: 'Upload cancelled',
+            labelFileProcessingError: 'Error during upload',
+            labelTapToCancel: 'tap to cancel',
+            labelTapToRetry: 'tap to retry',
+            labelTapToUndo: 'tap to undo',
+            labelButtonRemoveItem: 'Remove',
+            labelButtonAbortItemLoad: 'Abort',
+            labelButtonRetryItemLoad: 'Retry',
+            labelButtonAbortItemProcessing: 'Cancel',
+            labelButtonUndoItemProcessing: 'Undo',
+            labelButtonRetryItemProcessing: 'Retry',
+            labelButtonProcessItem: 'Upload',
+            credits: false,
+            instantUpload: true,
 
-            const files = e.dataTransfer.files;
-            addFilesToQueue(files);
-        }
+            // Server configuration
+            server: {
+                process: (fieldName, file, metadata, load, error, progress, abort) => {
+                    const formData = new FormData();
+                    formData.append('placeId', placeId);
+                    formData.append('files', file, file.name);
+                    formData.append('__RequestVerificationToken', token);
 
-        function handleFileSelect(e) {
-            const files = e.target.files;
-            addFilesToQueue(files);
-            e.target.value = ''; // Reset input
-        }
+                    const request = new XMLHttpRequest();
+                    request.open('POST', '/admin/photos/upload');
 
-        function addFilesToQueue(files) {
-            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+                    request.upload.onprogress = (e) => {
+                        progress(e.lengthComputable, e.loaded, e.total);
+                    };
 
-            if (imageFiles.length === 0) {
-                alert('Please select image files only.');
-                return;
-            }
-
-            imageFiles.forEach(file => {
-                const fileId = Date.now() + Math.random();
-                const fileItem = {
-                    id: fileId,
-                    file: file,
-                    preview: null,
-                    progress: 0,
-                    status: 'pending' // pending, uploading, success, error
-                };
-
-                uploadQueue.push(fileItem);
-
-                // Generate preview
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    fileItem.preview = e.target.result;
-                    renderQueue();
-                };
-                reader.readAsDataURL(file);
-            });
-
-            renderQueue();
-        }
-
-        function renderQueue() {
-            const queueSection = document.getElementById('uploadQueue');
-            const fileList = document.getElementById('fileList');
-            const fileCount = document.getElementById('fileCount');
-
-            if (uploadQueue.length === 0) {
-                queueSection.classList.add('hidden');
-                return;
-            }
-
-            queueSection.classList.remove('hidden');
-            fileCount.textContent = uploadQueue.length;
-
-            fileList.innerHTML = uploadQueue.map(item => `
-                <div class="flex items-center gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200" data-file-id="${item.id}">
-                    <div class="flex-shrink-0 w-16 h-16 bg-gray-200 rounded overflow-hidden">
-                        ${item.preview ? `<img src="${item.preview}" class="w-full h-full object-cover" />` :
-                          '<div class="w-full h-full flex items-center justify-center"><svg class="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>'}
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="text-sm font-medium text-gray-900 truncate">${item.file.name}</p>
-                        <p class="text-xs text-gray-500 font-mono">${formatFileSize(item.file.size)}</p>
-                        ${item.status === 'uploading' ? `
-                        <div class="mt-2">
-                            <div class="w-full bg-gray-200 rounded-full h-1.5">
-                                <div class="bg-black h-1.5 rounded-full transition-all duration-300" style="width: ${item.progress}%"></div>
-                            </div>
-                            <p class="text-xs text-gray-500 mt-1">${item.progress}%</p>
-                        </div>
-                        ` : item.status === 'success' ? `
-                        <div class="mt-1 flex items-center gap-1 text-xs text-green-600">
-                            <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
-                            Uploaded
-                        </div>
-                        ` : item.status === 'error' ? `
-                        <p class="mt-1 text-xs text-red-600">Upload failed</p>
-                        ` : ''}
-                    </div>
-                    ${item.status === 'pending' ? `
-                    <button type="button" onclick="removeFromQueue('${item.id}')" class="flex-shrink-0 p-2 text-gray-400 hover:text-red-600 transition-colors">
-                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    </button>
-                    ` : item.status === 'success' ? `
-                    <div class="flex-shrink-0 p-2">
-                        <svg class="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                        </svg>
-                    </div>
-                    ` : ''}
-                </div>
-            `).join('');
-        }
-
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        }
-
-        function removeFromQueue(fileId) {
-            uploadQueue = uploadQueue.filter(item => item.id != fileId);
-            renderQueue();
-        }
-
-        function clearQueue() {
-            if (confirm('Clear all files from upload queue?')) {
-                uploadQueue = [];
-                renderQueue();
-            }
-        }
-
-        function cancelUpload() {
-            uploadQueue = [];
-            renderQueue();
-        }
-
-        async function startUpload() {
-            const uploadBtn = document.getElementById('uploadBtn');
-            uploadBtn.disabled = true;
-
-            const pendingFiles = uploadQueue.filter(item => item.status === 'pending');
-
-            for (const item of pendingFiles) {
-                item.status = 'uploading';
-                renderQueue();
-
-                const formData = new FormData();
-                formData.append('placeId', placeId);
-                formData.append('files', item.file);
-
-                // Get anti-forgery token
-                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
-
-                try {
-                    const xhr = new XMLHttpRequest();
-
-                    xhr.upload.addEventListener('progress', (e) => {
-                        if (e.lengthComputable) {
-                            item.progress = Math.round((e.loaded / e.total) * 100);
-                            renderQueue();
-                        }
-                    });
-
-                    const response = await new Promise((resolve, reject) => {
-                        xhr.open('POST', '/admin/photos/upload', true);
-                        xhr.setRequestHeader('RequestVerificationToken', token);
-
-                        xhr.onload = () => {
-                            if (xhr.status >= 200 && xhr.status < 300) {
-                                resolve(JSON.parse(xhr.responseText));
-                            } else {
-                                reject(new Error('Upload failed'));
+                    request.onload = function() {
+                        if (request.status >= 200 && request.status < 300) {
+                            try {
+                                const result = JSON.parse(request.response);
+                                if (result.success) {
+                                    load(request.responseText);
+                                } else {
+                                    error(result.message || 'Upload failed');
+                                }
+                            } catch (e) {
+                                error('Invalid response from server');
                             }
-                        };
+                        } else {
+                            error('Upload failed');
+                        }
+                    };
 
-                        xhr.onerror = () => reject(new Error('Upload failed'));
-                        xhr.send(formData);
-                    });
+                    request.onerror = function() {
+                        error('Upload failed');
+                    };
 
-                    item.status = 'success';
-                    item.progress = 100;
-                } catch (error) {
-                    item.status = 'error';
-                    console.error('Upload error:', error);
+                    request.send(formData);
+
+                    return {
+                        abort: () => {
+                            request.abort();
+                            abort();
+                        }
+                    };
                 }
+            },
 
-                renderQueue();
-            }
-
-            uploadBtn.disabled = false;
-
-            // Check if all successful
-            if (uploadQueue.every(f => f.status === 'success')) {
+            // Callbacks
+            onprocessfiles: () => {
+                // All files have been uploaded
                 setTimeout(() => {
-                    location.reload(); // Reload to show new photos
+                    location.reload();
                 }, 1000);
             }
-        }
+        });
 
         // Drag and drop for photo reordering
         let draggedElement = null;

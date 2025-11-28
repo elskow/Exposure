@@ -12,6 +12,8 @@
         <Compile Include="Models\Entities.fs" />
         <Compile Include="Data\GalleryDbContext.fs" />
         <Compile Include="Services/DummyDataService.fs" />
+        <Compile Include="Services/SlugGeneratorService.fs" />
+        <Compile Include="Services/ImageProcessingService.fs" />
         <Compile Include="Services/PlaceService.fs" />
         <Compile Include="Services/PathValidationService.fs" />
         <Compile Include="Services/FileValidationService.fs" />

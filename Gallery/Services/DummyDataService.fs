@@ -43,12 +43,14 @@ type DummyDataService() =
 
                         {
                             Id = id
+                            Slug = sprintf "place%d" id
                             Name = name
                             Location = location
                             Country = country
                             Photos = totalPhotos
                             TripDates = tripDates
                             FavoritePhotoNum = if totalPhotos > 0 then Some(1) else None
+                            FavoritePhotoFileName = if totalPhotos > 0 then Some("1.jpg") else None
                         }
                     )
                     |> List.ofSeq
@@ -80,15 +82,19 @@ type DummyDataService() =
                         let photos =
                             placeElement.GetProperty("photos").EnumerateArray()
                             |> Seq.map (fun photoElement ->
+                                let num = photoElement.GetProperty("num").GetInt32()
                                 {
-                                    Num = photoElement.GetProperty("num").GetInt32()
-                                    IsFavorite = photoElement.GetProperty("num").GetInt32() = 1
+                                    Num = num
+                                    Slug = sprintf "photo%d" num
+                                    FileName = sprintf "%d.jpg" num
+                                    IsFavorite = num = 1
                                 }
                             )
                             |> List.ofSeq
 
                         let detailPage = {
                             PlaceId = id
+                            PlaceSlug = sprintf "place%d" id
                             Name = name
                             Location = location
                             Country = country
@@ -132,7 +138,10 @@ type DummyDataService() =
 
             Some {
                 PlaceId = placeId
+                PlaceSlug = sprintf "place%d" placeId
                 PhotoNum = photoNum
+                PhotoSlug = sprintf "photo%d" photoNum
+                FileName = sprintf "%d.jpg" photoNum
                 TotalPhotos = totalPhotos
                 PlaceName = placeDetail.Name
                 Location = placeDetail.Location
@@ -141,5 +150,9 @@ type DummyDataService() =
                 UniqueId = uniqueId
                 PrevPhoto = Option.toNullable prevOpt
                 NextPhoto = Option.toNullable nextOpt
+                PrevPhotoSlug = prevOpt |> Option.map (fun n -> sprintf "photo%d" n)
+                NextPhotoSlug = nextOpt |> Option.map (fun n -> sprintf "photo%d" n)
+                PrevPhotoFileName = prevOpt |> Option.map (fun n -> sprintf "%d.jpg" n)
+                NextPhotoFileName = nextOpt |> Option.map (fun n -> sprintf "%d.jpg" n)
             }
         | None -> None

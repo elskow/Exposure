@@ -36,9 +36,21 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
             .OnDelete(DeleteBehavior.Cascade)
             |> ignore
 
+        // Create unique index on Place Slug
+        modelBuilder.Entity<Place>()
+            .HasIndex("Slug")
+            .IsUnique()
+            |> ignore
+
         // Create unique index on PlaceId + PhotoNum
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "PhotoNum")
+            .IsUnique()
+            |> ignore
+
+        // Create unique index on PlaceId + Photo Slug (slug must be unique within each place)
+        modelBuilder.Entity<Photo>()
+            .HasIndex("PlaceId", "Slug")
             .IsUnique()
             |> ignore
 

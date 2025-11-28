@@ -45,6 +45,8 @@ module Program =
         ) |> ignore
 
         // Register services
+        builder.Services.AddScoped<SlugGeneratorService>() |> ignore
+        builder.Services.AddScoped<ImageProcessingService>() |> ignore
         builder.Services.AddScoped<PlaceService>() |> ignore
         builder.Services.AddScoped<PhotoService>() |> ignore
         builder.Services.AddScoped<AuthenticationService>() |> ignore

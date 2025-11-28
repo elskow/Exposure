@@ -13,23 +13,28 @@ type TripDates = {
 // Represents a single Place on the Home Page
 type PlaceSummary = {
     Id: int
+    Slug: string
     Name: string
     Location: string
     Country: string
     Photos: int
     TripDates: TripDates
     FavoritePhotoNum: int option
+    FavoritePhotoFileName: string option
 }
 
 // Represents a single photo on the Place Detail page
 type PhotoDetail = {
     Num: int
+    Slug: string
+    FileName: string
     IsFavorite: bool
 }
 
 // Represents the data needed for the Place Detail Page
 type PlaceDetailPage = {
     PlaceId: int
+    PlaceSlug: string
     Name: string
     Location: string
     Country: string
@@ -41,7 +46,10 @@ type PlaceDetailPage = {
 
 type PhotoViewModel = {
     PlaceId: int
+    PlaceSlug: string
     PhotoNum: int
+    PhotoSlug: string
+    FileName: string
     TotalPhotos: int
     PlaceName: string
     Location: string
@@ -50,4 +58,8 @@ type PhotoViewModel = {
     UniqueId: string
     PrevPhoto: Nullable<int>
     NextPhoto: Nullable<int>
+    PrevPhotoSlug: string option
+    NextPhotoSlug: string option
+    PrevPhotoFileName: string option
+    NextPhotoFileName: string option
 }

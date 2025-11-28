@@ -3,6 +3,7 @@ namespace Gallery.Services
 open System
 open System.Linq
 open System.Security.Cryptography
+open System.Threading
 open Microsoft.EntityFrameworkCore
 open OtpNet
 open QRCoder
@@ -10,6 +11,9 @@ open Gallery.Data
 open Gallery.Models
 
 type AuthenticationService(context: GalleryDbContext) =
+
+    // Static lock to prevent race conditions when creating users
+    static let createUserLock = new SemaphoreSlim(1, 1)
 
     // Generate a random TOTP secret
     member _.GenerateTotpSecret() =
@@ -70,20 +74,26 @@ type AuthenticationService(context: GalleryDbContext) =
     // Create admin user
     member this.CreateAdminUserAsync(username: string, password: string) =
         task {
-            let! existingUser = this.GetAdminUserAsync(username)
+            // Acquire lock to prevent duplicate username race condition
+            let! _ = createUserLock.WaitAsync()
 
-            match existingUser with
-            | Some _ -> return Error "User already exists"
-            | None ->
-                let user = AdminUser()
-                user.Username <- username
-                user.PasswordHash <- this.HashPassword(password)
-                user.TotpEnabled <- false
-                user.CreatedAt <- DateTime.UtcNow
+            try
+                let! existingUser = this.GetAdminUserAsync(username)
 
-                context.AdminUsers.Add(user) |> ignore
-                let! _ = context.SaveChangesAsync()
-                return Ok user.Id
+                match existingUser with
+                | Some _ -> return Error "User already exists"
+                | None ->
+                    let user = AdminUser()
+                    user.Username <- username
+                    user.PasswordHash <- this.HashPassword(password)
+                    user.TotpEnabled <- false
+                    user.CreatedAt <- DateTime.UtcNow
+
+                    context.AdminUsers.Add(user) |> ignore
+                    let! _ = context.SaveChangesAsync()
+                    return Ok user.Id
+            finally
+                createUserLock.Release() |> ignore
         }
 
     // Enable TOTP for user

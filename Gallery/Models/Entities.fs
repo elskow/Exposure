@@ -11,6 +11,10 @@ type Place() =
     member val Id = 0 with get, set
 
     [<Required>]
+    [<MaxLength(12)>]
+    member val Slug = "" with get, set
+
+    [<Required>]
     [<MaxLength(200)>]
     member val Name = "" with get, set
 
@@ -46,6 +50,10 @@ and [<AllowNullLiteral>]
 
     [<Required>]
     member val PlaceId = 0 with get, set
+
+    [<Required>]
+    [<MaxLength(12)>]
+    member val Slug = "" with get, set
 
     [<Required>]
     member val PhotoNum = 0 with get, set

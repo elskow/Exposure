@@ -10,41 +10,62 @@ type PlaceController(placeService: PlaceService) =
     inherit Controller()
 
     // ---------------------------------------------------------
-    // URL: /places/{id}
-    // Example: http://localhost:5059/places/1
+    // URL: /places/{slug}
+    // Example: http://localhost:5059/places/a3f7e9b2
     // ---------------------------------------------------------
-    [<Route("places/{id}")>]
-    member this.Index (id: int) =
-        let placeDetail = placeService.GetPlaceByIdAsync(id).Result
+    [<Route("places/{slug}")>]
+    member this.Index (slug: string) =
+        let placeDetail = placeService.GetPlaceBySlugAsync(slug).Result
         match placeDetail with
         | Some detail -> this.View(detail) :> IActionResult
         | None -> this.NotFound() :> IActionResult
 
     // ---------------------------------------------------------
-    // URL: /places/{placeId}/photos/{photoNum}
-    // Example: http://localhost:5059/places/1/photos/5
+    // URL: /places/{placeSlug}/photos/{photoSlug}
+    // Example: http://localhost:5059/places/a3f7e9b2/photos/x9k2m5n8
     // ---------------------------------------------------------
-    [<Route("places/{placeId}/photos/{photoNum}")>]
-    member this.Detail (placeId: int, photoNum: int) =
-        let placeDetailOpt = placeService.GetPlaceByIdAsync(placeId).Result
+    [<Route("places/{placeSlug}/photos/{photoSlug}")>]
+    member this.Detail (placeSlug: string, photoSlug: string) =
+        let placeDetailOpt = placeService.GetPlaceBySlugAsync(placeSlug).Result
         match placeDetailOpt with
         | Some placeDetail ->
             let totalPhotos = placeDetail.TotalPhotos
-            let prevOpt = if photoNum > 1 then Some(photoNum - 1) else None
-            let nextOpt = if photoNum < totalPhotos then Some(photoNum + 1) else None
-            let uniqueId = sprintf "PH/%X" (photoNum * 12345)
 
-            let photoModel = {
-                PlaceId = placeId
-                PhotoNum = photoNum
-                TotalPhotos = totalPhotos
-                PlaceName = placeDetail.Name
-                Location = placeDetail.Location
-                Country = placeDetail.Country
-                TripDates = placeDetail.TripDates
-                UniqueId = uniqueId
-                PrevPhoto = Option.toNullable prevOpt
-                NextPhoto = Option.toNullable nextOpt
-            }
-            this.View(photoModel) :> IActionResult
+            // Find current photo by slug
+            let currentPhoto = placeDetail.Photos |> List.tryFind (fun p -> p.Slug = photoSlug)
+            match currentPhoto with
+            | None -> this.NotFound() :> IActionResult
+            | Some photo ->
+                // Find previous and next photos
+                let prevPhotoOpt =
+                    if photo.Num > 1 then
+                        placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num - 1)
+                    else None
+                let nextPhotoOpt =
+                    if photo.Num < totalPhotos then
+                        placeDetail.Photos |> List.tryFind (fun p -> p.Num = photo.Num + 1)
+                    else None
+
+                let uniqueId = sprintf "PH/%X" (photo.Num * 12345)
+
+                let photoModel = {
+                    PlaceId = placeDetail.PlaceId
+                    PlaceSlug = placeDetail.PlaceSlug
+                    PhotoNum = photo.Num
+                    PhotoSlug = photo.Slug
+                    FileName = photo.FileName
+                    TotalPhotos = totalPhotos
+                    PlaceName = placeDetail.Name
+                    Location = placeDetail.Location
+                    Country = placeDetail.Country
+                    TripDates = placeDetail.TripDates
+                    UniqueId = uniqueId
+                    PrevPhoto = prevPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
+                    NextPhoto = nextPhotoOpt |> Option.map (fun p -> p.Num) |> Option.toNullable
+                    PrevPhotoSlug = prevPhotoOpt |> Option.map (fun p -> p.Slug)
+                    NextPhotoSlug = nextPhotoOpt |> Option.map (fun p -> p.Slug)
+                    PrevPhotoFileName = prevPhotoOpt |> Option.map (fun p -> p.FileName)
+                    NextPhotoFileName = nextPhotoOpt |> Option.map (fun p -> p.FileName)
+                }
+                this.View(photoModel) :> IActionResult
         | None -> this.NotFound() :> IActionResult

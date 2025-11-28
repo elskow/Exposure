@@ -18,15 +18,6 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
         else
             Ok id
 
-    // Validate photo number
-    member _.ValidatePhotoNum(photoNum: int) : Result<int, string> =
-        if photoNum < 1 then
-            Error "Photo number must be greater than 0"
-        elif photoNum > 9999 then
-            Error "Photo number exceeds maximum allowed value (9999)"
-        else
-            Ok photoNum
-
     // Sanitize path component (remove any path traversal attempts)
     member _.SanitizePathComponent(pathComponent: string) : Result<string, string> =
         if String.IsNullOrWhiteSpace(pathComponent) then
@@ -68,52 +59,42 @@ type PathValidationService(webHostEnvironment: IWebHostEnvironment) =
             // Validate the constructed path is within wwwroot
             this.ValidatePathWithinWwwRoot(fullPath)
 
-    // Build and validate full photo file path
-    member this.GetValidatedPhotoPath(placeId: int, photoNum: int, extension: string) : Result<string, string> =
+    // Build and validate full photo file path using fileName
+    member this.GetValidatedPhotoPath(placeId: int, fileName: string) : Result<string, string> =
         match this.ValidateId(placeId, "placeId") with
         | Error msg -> Error msg
         | Ok validPlaceId ->
-            match this.ValidatePhotoNum(photoNum) with
+            match this.SanitizePathComponent(fileName) with
             | Error msg -> Error msg
-            | Ok validPhotoNum ->
-                match this.SanitizePathComponent(extension) with
-                | Error msg -> Error msg
-                | Ok validExtension ->
-                    // Ensure extension starts with dot
-                    let normalizedExt = if validExtension.StartsWith(".") then validExtension else "." + validExtension
+            | Ok validFileName ->
+                // Build path using only validated components
+                let relativePath = Path.Combine("images", "places", validPlaceId.ToString(), validFileName)
+                let fullPath = Path.Combine(wwwRootPath, relativePath)
 
-                    // Build path using only validated components
-                    let fileName = sprintf "%d%s" validPhotoNum normalizedExt
-                    let relativePath = Path.Combine("images", "places", validPlaceId.ToString(), fileName)
-                    let fullPath = Path.Combine(wwwRootPath, relativePath)
-
-                    // Final validation that path is within wwwroot
-                    this.ValidatePathWithinWwwRoot(fullPath)
+                // Final validation that path is within wwwroot
+                this.ValidatePathWithinWwwRoot(fullPath)
 
     // Validate and get photo path for existing file
-    member this.GetValidatedExistingPhotoPath(placeId: int, photoNum: int, fileName: string) : Result<string, string> =
+    member this.GetValidatedExistingPhotoPath(placeId: int, fileName: string) : Result<string, string> =
         match this.ValidateId(placeId, "placeId") with
         | Error msg -> Error msg
         | Ok validPlaceId ->
-            match this.ValidatePhotoNum(photoNum) with
+            match this.SanitizePathComponent(fileName) with
             | Error msg -> Error msg
-            | Ok validPhotoNum ->
-                match this.SanitizePathComponent(fileName) with
-                | Error msg -> Error msg
-                | Ok validFileName ->
-                    // Build path
-                    let relativePath = Path.Combine("images", "places", validPlaceId.ToString(), validFileName)
-                    let fullPath = Path.Combine(wwwRootPath, relativePath)
+            | Ok validFileName ->
+                // Build path
+                let relativePath = Path.Combine("images", "places", validPlaceId.ToString(), validFileName)
+                let fullPath = Path.Combine(wwwRootPath, relativePath)
 
-                    // Validate path is within wwwroot
-                    match this.ValidatePathWithinWwwRoot(fullPath) with
-                    | Error msg -> Error msg
-                    | Ok validPath ->
-                        // Check file exists
-                        if File.Exists(validPath) then
-                            Ok validPath
-                        else
-                            Error (sprintf "File does not exist: %s" fileName)
+                // Validate path is within wwwroot
+                match this.ValidatePathWithinWwwRoot(fullPath) with
+                | Error msg -> Error msg
+                | Ok validPath ->
+                    // Check file exists
+                    if File.Exists(validPath) then
+                        Ok validPath
+                    else
+                        Error (sprintf "File does not exist: %s" fileName)
 
     // Check if path exists and is safe
     member this.PathExistsAndIsSafe(fullPath: string) : Result<bool, string> =

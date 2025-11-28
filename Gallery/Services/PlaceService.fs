@@ -3,11 +3,15 @@ namespace Gallery.Services
 open System
 open System.Globalization
 open System.Linq
+open System.Threading
 open Microsoft.EntityFrameworkCore
 open Gallery.Data
 open Gallery.Models
 
-type PlaceService(context: GalleryDbContext) =
+type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService) =
+
+    // Static lock to prevent race conditions when creating places with duplicate slugs
+    static let createPlaceLock = new SemaphoreSlim(1, 1)
 
     // Helper to format ISO date (YYYY-MM-DD) to display format (DD MMM, YYYY)
     let formatDateForDisplay (isoDate: string) =
@@ -53,18 +57,19 @@ type PlaceService(context: GalleryDbContext) =
                     let displayText = generateDisplayText p.StartDate endDate
 
                     // Get favorite photo or first photo
-                    let favoritePhotoNum =
+                    let favoritePhotoNum, favoritePhotoFileName =
                         let favoritePhoto = p.Photos |> Seq.tryFind (fun ph -> ph.IsFavorite)
                         match favoritePhoto with
-                        | Some photo -> Some(photo.PhotoNum)
+                        | Some photo -> Some(photo.PhotoNum), Some(photo.FileName)
                         | None ->
                             let firstPhoto = p.Photos |> Seq.sortBy (fun ph -> ph.PhotoNum) |> Seq.tryHead
                             match firstPhoto with
-                            | Some photo -> Some(photo.PhotoNum)
-                            | None -> None
+                            | Some photo -> Some(photo.PhotoNum), Some(photo.FileName)
+                            | None -> None, None
 
                     {
                         Id = p.Id
+                        Slug = p.Slug
                         Name = p.Name
                         Location = p.Location
                         Country = p.Country
@@ -76,6 +81,7 @@ type PlaceService(context: GalleryDbContext) =
                             DisplayText = displayText
                         }
                         FavoritePhotoNum = favoritePhotoNum
+                        FavoritePhotoFileName = favoritePhotoFileName
                     }
                 )
                 |> List.ofSeq
@@ -105,12 +111,65 @@ type PlaceService(context: GalleryDbContext) =
                         .OrderBy(fun ph -> ph.PhotoNum :> obj)
                         .Select(fun ph -> {
                             Num = ph.PhotoNum
+                            Slug = ph.Slug
+                            FileName = ph.FileName
                             IsFavorite = ph.IsFavorite
                         })
                         |> List.ofSeq
 
                 let placeDetail = {
                     PlaceId = place.Id
+                    PlaceSlug = place.Slug
+                    Name = place.Name
+                    Location = place.Location
+                    Country = place.Country
+                    TotalPhotos = place.Photos.Count
+                    Favorites = place.Favorites
+                    TripDates = {
+                        StartDate = place.StartDate
+                        EndDate = endDate
+                        IsSingleDay = isSingleDay
+                        DisplayText = displayText
+                    }
+                    Photos = photos
+                }
+
+                return Some(placeDetail)
+        }
+
+    // Get place by slug with all photos
+    member this.GetPlaceBySlugAsync(slug: string) =
+        task {
+            let! place =
+                context.Places
+                    .Include(fun p -> p.Photos :> obj)
+                    .FirstOrDefaultAsync(fun p -> p.Slug = slug)
+
+            if isNull place then
+                return None
+            else
+                let endDate =
+                    if isNull place.EndDate then None
+                    else Some(place.EndDate)
+
+                let isSingleDay = isNull place.EndDate
+
+                let displayText = generateDisplayText place.StartDate endDate
+
+                let photos =
+                    place.Photos
+                        .OrderBy(fun ph -> ph.PhotoNum :> obj)
+                        .Select(fun ph -> {
+                            Num = ph.PhotoNum
+                            Slug = ph.Slug
+                            FileName = ph.FileName
+                            IsFavorite = ph.IsFavorite
+                        })
+                        |> List.ofSeq
+
+                let placeDetail = {
+                    PlaceId = place.Id
+                    PlaceSlug = place.Slug
                     Name = place.Name
                     Location = place.Location
                     Country = place.Country
@@ -131,23 +190,35 @@ type PlaceService(context: GalleryDbContext) =
     // Create new place
     member this.CreatePlaceAsync(name: string, location: string, country: string, startDate: string, endDate: string option) =
         task {
-            let place = Place()
-            place.Name <- name
-            place.Location <- location
-            place.Country <- country
-            place.StartDate <- startDate
-            place.EndDate <-
-                match endDate with
-                | Some date when not (String.IsNullOrWhiteSpace(date)) -> date
-                | _ -> null
-            place.Favorites <- 0
-            place.CreatedAt <- DateTime.UtcNow
-            place.UpdatedAt <- DateTime.UtcNow
+            // Acquire lock to prevent duplicate slug race condition
+            let! _ = createPlaceLock.WaitAsync()
 
-            context.Places.Add(place) |> ignore
-            let! _ = context.SaveChangesAsync()
+            try
+                let place = Place()
 
-            return place.Id
+                // Generate unique slug
+                let slugExists (slug: string) =
+                    context.Places.Any(fun p -> p.Slug = slug)
+                place.Slug <- slugGenerator.GenerateUniqueSlug(slugExists)
+
+                place.Name <- name
+                place.Location <- location
+                place.Country <- country
+                place.StartDate <- startDate
+                place.EndDate <-
+                    match endDate with
+                    | Some date when not (String.IsNullOrWhiteSpace(date)) -> date
+                    | _ -> null
+                place.Favorites <- 0
+                place.CreatedAt <- DateTime.UtcNow
+                place.UpdatedAt <- DateTime.UtcNow
+
+                context.Places.Add(place) |> ignore
+                let! _ = context.SaveChangesAsync()
+
+                return place.Id
+            finally
+                createPlaceLock.Release() |> ignore
         }
 
     // Update existing place

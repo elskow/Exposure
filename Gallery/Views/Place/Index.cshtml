@@ -14,17 +14,21 @@ ViewData["Title"] = Model.Name + " - Photo Gallery";
         <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-x-3 gap-y-12 lg:gap-x-4 xl:gap-x-8 lg:gap-y-16 items-end">
             @foreach (var photo in Model.Photos)
             {
-            <a href="@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = photo.Num })"
+            <a href="@Url.Action("Detail", "Place", new { placeSlug = Model.PlaceSlug, photoSlug = photo.Slug })"
                class="group cursor-pointer w-full block focus:outline-none"
                aria-label="View photo @photo.Num">
 
                 <div class="relative w-full mb-4 bg-gray-100 border border-gray-300 aspect-[3/2] overflow-hidden rounded-[1px] group-focus:ring-2 group-focus:ring-black group-focus:ring-offset-2">
-
-                    <img src="/images/places/@(Model.PlaceId)/@(photo.Num).jpg"
+                    @{
+                        var extension = System.IO.Path.GetExtension(photo.FileName);
+                        var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(photo.FileName);
+                        var smallFileName = nameWithoutExt + "-small" + extension;
+                    }
+                    <img src="/images/places/@(Model.PlaceId)/@smallFileName"
                          alt="Photo @photo.Num"
                          class="w-full h-full object-cover block transition-transform duration-700 ease-out group-hover:scale-[1.01]"
                          loading="lazy"
-                         onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.Num).png'; this.onerror=function(){this.src='/images/places/@(Model.PlaceId)/@(photo.Num).jpeg'; this.onerror=null;};" />
+                         onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.FileName)';" />
 
                     <div class="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-colors duration-300 pointer-events-none"></div>
 

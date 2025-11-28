@@ -51,7 +51,7 @@
 
     <header class="flex justify-between items-center px-5 md:px-12 h-20 shrink-0 z-20" role="banner">
 
-        <a href="@Url.Action("Index", "Place", new { id = Model.PlaceId })"
+        <a href="@Url.Action("Index", "Place", new { slug = Model.PlaceSlug })"
            id="close-button"
            class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
            aria-label="Close photo viewer and return to @Model.PlaceName gallery"
@@ -67,7 +67,7 @@
         <nav class="flex gap-4 text-gray-500" aria-label="Photo navigation" role="navigation">
             @if (Model.PrevPhoto.HasValue)
             {
-                <a href="@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = Model.PrevPhoto.Value })"
+                <a href="@Url.Action("Detail", "Place", new { placeSlug = Model.PlaceSlug, photoSlug = Model.PrevPhotoSlug.Value })"
                    id="prev-button"
                    class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
                    aria-label="Previous photo (@(Model.PrevPhoto.Value) of @Model.TotalPhotos)"
@@ -87,7 +87,7 @@
 
             @if (Model.NextPhoto.HasValue)
             {
-                <a href="@Url.Action("Detail", "Place", new { placeId = Model.PlaceId, photoNum = Model.NextPhoto.Value })"
+                <a href="@Url.Action("Detail", "Place", new { placeSlug = Model.PlaceSlug, photoSlug = Model.NextPhotoSlug.Value })"
                    id="next-button"
                    class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
                    aria-label="Next photo (@(Model.NextPhoto.Value) of @Model.TotalPhotos)"
@@ -110,11 +110,10 @@
     <main id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative w-full h-full overflow-hidden" role="main" tabindex="-1">
 
         <figure>
-            <img src="/images/places/@(Model.PlaceId)/@(Model.PhotoNum).jpg"
+            <img src="/images/places/@(Model.PlaceId)/@(Model.FileName)"
                  alt="@Model.PlaceName - Photo @Model.PhotoNum of @Model.TotalPhotos taken in @Model.Location, @Model.Country during @Model.TripDates.DisplayText"
                  class="max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
-                 loading="eager"
-                 onerror="this.src='/images/places/@(Model.PlaceId)/@(Model.PhotoNum).png';" />
+                 loading="eager" />
         </figure>
 
     </main>
@@ -226,7 +225,7 @@
                 {
                     <text>
                     var prevImg = new Image();
-                    prevImg.src = '/images/places/@(Model.PlaceId)/@(Model.PrevPhoto.Value).jpg';
+                    prevImg.src = '/images/places/@(Model.PlaceId)/@(Model.PrevPhotoFileName.Value)';
                     </text>
                 }
 
@@ -234,7 +233,7 @@
                 {
                     <text>
                     var nextImg = new Image();
-                    nextImg.src = '/images/places/@(Model.PlaceId)/@(Model.NextPhoto.Value).jpg';
+                    nextImg.src = '/images/places/@(Model.PlaceId)/@(Model.NextPhotoFileName.Value)';
                     </text>
                 }
             }

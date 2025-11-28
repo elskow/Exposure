@@ -119,22 +119,24 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                 return this.View(model) :> IActionResult
         }
 
-    // GET: /admin/edit/{id}
-    [<Route("/admin/edit/{id}")>]
+    // GET: /admin/edit/{slug}
+    [<Route("/admin/edit/{slug}")>]
     [<Authorize>]
-    member this.Edit(id: int) =
-        let placeDetailOpt = placeService.GetPlaceByIdAsync(id).Result
+    member this.Edit(slug: string) =
+        let placeDetailOpt = placeService.GetPlaceBySlugAsync(slug).Result
         match placeDetailOpt with
         | Some placeDetail ->
             // Convert PlaceDetailPage to PlaceSummary for the view
             let place = {
                 Id = placeDetail.PlaceId
+                Slug = placeDetail.PlaceSlug
                 Name = placeDetail.Name
                 Location = placeDetail.Location
                 Country = placeDetail.Country
                 Photos = placeDetail.TotalPhotos
                 TripDates = placeDetail.TripDates
                 FavoritePhotoNum = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.Num)
+                FavoritePhotoFileName = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.FileName)
             }
             this.View(place) :> IActionResult
         | None -> this.NotFound() :> IActionResult
@@ -151,12 +153,14 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             | Some placeDetail ->
                 let place = {
                     Id = placeDetail.PlaceId
+                    Slug = placeDetail.PlaceSlug
                     Name = placeDetail.Name
                     Location = placeDetail.Location
                     Country = placeDetail.Country
                     Photos = placeDetail.TotalPhotos
                     TripDates = placeDetail.TripDates
                     FavoritePhotoNum = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.Num)
+                    FavoritePhotoFileName = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.FileName)
                 }
                 this.View("Edit", place) :> IActionResult
             | None -> this.NotFound() :> IActionResult
@@ -177,18 +181,18 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
     member this.Delete(id: int) =
-        // Delete all photos for this place first
-        photoService.DeleteAllPhotosForPlaceAsync(id).Wait()
+        task {
+            // Use atomic deletion to prevent race conditions
+            // This holds the lock during the entire deletion process
+            let! success = photoService.DeletePlaceWithPhotosAsync(id, placeService.DeletePlaceAsync)
+            return this.RedirectToAction("Index") :> IActionResult
+        }
 
-        // Delete the place from database
-        let success = placeService.DeletePlaceAsync(id).Result
-        this.RedirectToAction("Index") :> IActionResult
-
-    // GET: /admin/photos/{id}
-    [<Route("/admin/photos/{id}")>]
+    // GET: /admin/photos/{slug}
+    [<Route("/admin/photos/{slug}")>]
     [<Authorize>]
-    member this.Photos(id: int) =
-        match placeService.GetPlaceByIdAsync(id).Result with
+    member this.Photos(slug: string) =
+        match placeService.GetPlaceBySlugAsync(slug).Result with
         | Some placeDetail -> this.View(placeDetail) :> IActionResult
         | None -> this.NotFound() :> IActionResult
 
