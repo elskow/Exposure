@@ -3,7 +3,9 @@ namespace Gallery
 #nowarn "20"
 
 open System
+open System.IO
 open Microsoft.AspNetCore.Builder
+open Microsoft.AspNetCore.StaticFiles
 open Microsoft.Extensions.Configuration
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
@@ -155,13 +157,28 @@ module Program =
 
         app.UseOutputCache() |> ignore
 
-        app.UseStaticFiles(
-            StaticFileOptions(
-                OnPrepareResponse = fun ctx ->
-                    if not (builder.Environment.IsDevelopment()) then
-                        ctx.Context.Response.Headers.["Cache-Control"] <- "public,max-age=31536000,immutable"
-            )
-        )
+        let staticFileOptions = StaticFileOptions()
+        staticFileOptions.OnPrepareResponse <- fun ctx ->
+            let headers = ctx.Context.Response.Headers
+            let path = ctx.File.PhysicalPath
+
+            if not (String.IsNullOrEmpty(path)) && File.Exists(path) then
+                let fileInfo = FileInfo(path)
+                let lastModified = fileInfo.LastWriteTimeUtc
+                let etagValue = sprintf "\"%d-%d\"" (lastModified.Ticks) (fileInfo.Length)
+                headers.["ETag"] <- etagValue
+                headers.["Last-Modified"] <- lastModified.ToString("R")
+
+            if not (builder.Environment.IsDevelopment()) then
+                let extension = Path.GetExtension(ctx.File.Name).ToLowerInvariant()
+                let isImage = [| ".jpg"; ".jpeg"; ".png"; ".webp"; ".gif"; ".svg"; ".ico" |] |> Array.contains extension
+
+                if isImage then
+                    headers.["Cache-Control"] <- "public,max-age=31536000,immutable"
+                else
+                    headers.["Cache-Control"] <- "public,max-age=86400"
+
+        app.UseStaticFiles(staticFileOptions)
         app.UseRouting()
         app.UseAuthentication()
         app.UseAuthorization()
