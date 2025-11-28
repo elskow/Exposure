@@ -61,6 +61,15 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                             let mutable uploadedCount = 0
                             let mutable lastError = None
 
+                            let! currentMaxNum =
+                                context.Photos
+                                    .Where(fun p -> p.PlaceId = placeId)
+                                    .Select(fun p -> p.PhotoNum :> obj)
+                                    .MaxAsync(fun p -> p :?> Nullable<int>)
+
+                            let mutable nextPhotoNum =
+                                if currentMaxNum.HasValue then currentMaxNum.Value + 1 else 1
+
                             for file in files do
                                 if file.Length > 0L then
                                     let mutable filePath = ""
@@ -68,18 +77,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                     let mutable filesCreated = false
 
                                     try
-                                        let! photosList =
-                                            context.Photos
-                                                .Where(fun p -> p.PlaceId = placeId)
-                                                .ToListAsync()
+                                        let photoNum = nextPhotoNum
+                                        nextPhotoNum <- nextPhotoNum + 1
 
-                                        let currentMaxNum =
-                                            if photosList.Count = 0 then
-                                                0
-                                            else
-                                                photosList |> Seq.map (fun p -> p.PhotoNum) |> Seq.max
-
-                                        let photoNum = currentMaxNum + 1
                                         let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
                                         let normalizedExtension = if extension = ".jpeg" then ".jpg" else extension
                                         let uuid = Guid.NewGuid().ToString()
@@ -101,6 +101,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                                 logger.LogError(cleanupEx, "Cleanup failed after thumbnail error for {FileName}", file.FileName)
 
                                             filesCreated <- false
+                                            nextPhotoNum <- nextPhotoNum - 1
                                             lastError <- Some (sprintf "Failed to generate thumbnails for %s: %s" file.FileName msg)
                                             logger.LogError("Thumbnail generation failed for {FileName}: {Error}", file.FileName, msg)
                                         | Ok _ ->
@@ -125,6 +126,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                             with
                                             | dbEx ->
                                                 logger.LogError(dbEx, "Database save failed for {FileName}, cleaning up", file.FileName)
+                                                nextPhotoNum <- nextPhotoNum - 1
                                                 try
                                                     if File.Exists(filePath) then File.Delete(filePath)
                                                     let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
@@ -189,8 +191,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                             .ToListAsync()
 
                     for remainingPhoto in remainingPhotos do
-                        let newNum = remainingPhoto.PhotoNum - 1
-                        remainingPhoto.PhotoNum <- newNum
+                        remainingPhoto.PhotoNum <- remainingPhoto.PhotoNum - 1
 
                     let! _ = context.SaveChangesAsync()
                     logger.LogInformation("Deleted photo {PhotoNum} from placeId {PlaceId}", photoNum, placeId)
@@ -234,19 +235,14 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
     member this.GetPhotosForPlaceAsync(placeId: int) =
         task {
-            let uploadLock = getUploadLock(placeId)
-            let! _ = uploadLock.WaitAsync()
+            let! photos =
+                context.Photos
+                    .AsNoTracking()
+                    .Where(fun p -> p.PlaceId = placeId)
+                    .OrderBy(fun p -> p.PhotoNum :> obj)
+                    .ToListAsync()
 
-            try
-                let! photos =
-                    context.Photos
-                        .Where(fun p -> p.PlaceId = placeId)
-                        .OrderBy(fun p -> p.PhotoNum :> obj)
-                        .ToListAsync()
-
-                return photos |> List.ofSeq
-            finally
-                uploadLock.Release() |> ignore
+            return photos |> List.ofSeq
         }
 
     member this.DeletePlaceWithPhotosAsync(placeId: int, deletePlaceFunc: int -> Task<bool>) =
@@ -288,13 +284,12 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     return false
                 else
                     if isFavorite then
-                        let! otherPhotos =
+                        let! _ =
                             context.Photos
-                                .Where(fun p -> p.PlaceId = placeId && p.PhotoNum <> photoNum)
-                                .ToListAsync()
-
-                        for otherPhoto in otherPhotos do
-                            otherPhoto.IsFavorite <- false
+                                .Where(fun p -> p.PlaceId = placeId && p.PhotoNum <> photoNum && p.IsFavorite)
+                                .ExecuteUpdateAsync(fun setters ->
+                                    setters.SetProperty((fun p -> p.IsFavorite), false))
+                        ()
 
                     photo.IsFavorite <- isFavorite
                     let! _ = context.SaveChangesAsync()

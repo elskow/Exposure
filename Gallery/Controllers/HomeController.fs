@@ -12,6 +12,7 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
 
     // 1. Root Route
     [<Route("")>]
+    [<ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any)>]
     member this.Index () =
         task {
             let! places = placeService.GetAllPlacesAsync()

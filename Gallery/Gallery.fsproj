@@ -5,6 +5,18 @@
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+        <Optimize>true</Optimize>
+        <ServerGarbageCollection>true</ServerGarbageCollection>
+        <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+        <TieredCompilation>true</TieredCompilation>
+        <TieredPGO>true</TieredPGO>
+        <ReadyToRun>true</ReadyToRun>
+        <InvariantGlobalization>false</InvariantGlobalization>
+    </PropertyGroup>
+
 <ItemGroup>
         <Compile Include="Models/ErrorViewModel.fs" />
         <Compile Include="Models\GalleryModel.fs" />

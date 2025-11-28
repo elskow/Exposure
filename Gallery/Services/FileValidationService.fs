@@ -10,41 +10,38 @@ open SixLabors.ImageSharp
 
 type FileValidationService(configuration: IConfiguration, logger: ILogger<FileValidationService>) =
 
-    let maxFileSizeInMB =
-        let configValue = configuration.["FileUpload:MaxFileSizeInMB"]
-        if String.IsNullOrEmpty(configValue) then 10 else Int32.Parse(configValue)
+    let getConfigInt key defaultValue =
+        match configuration.[key] with
+        | null | "" -> defaultValue
+        | value -> Int32.Parse(value)
 
-    let maxFilesPerUpload =
-        let configValue = configuration.["FileUpload:MaxFilesPerUpload"]
-        if String.IsNullOrEmpty(configValue) then 50 else Int32.Parse(configValue)
+    let getConfigInt64 key defaultValue =
+        match configuration.[key] with
+        | null | "" -> defaultValue
+        | value -> Int64.Parse(value)
+
+    let getConfigBool key defaultValue =
+        match configuration.[key] with
+        | null | "" -> defaultValue
+        | value -> Boolean.Parse(value)
+
+    let maxFileSizeInMB = getConfigInt "FileUpload:MaxFileSizeInMB" 10
+    let maxFilesPerUpload = getConfigInt "FileUpload:MaxFilesPerUpload" 50
+    let maxImageWidth = getConfigInt "FileUpload:MaxImageWidth" 10000
+    let maxImageHeight = getConfigInt "FileUpload:MaxImageHeight" 10000
+    let maxImagePixels = getConfigInt64 "FileUpload:MaxImagePixels" 50000000L
+    let validateMagicNumbers = getConfigBool "FileUpload:ValidateMagicNumbers" true
+    let validateImageDimensions = getConfigBool "FileUpload:ValidateImageDimensions" true
 
     let allowedExtensions =
-        let configured = configuration.GetSection("FileUpload:AllowedExtensions").Get<string[]>()
-        if isNull configured then [|".jpg"; ".jpeg"; ".png"; ".webp"|] else configured
+        match configuration.GetSection("FileUpload:AllowedExtensions").Get<string[]>() with
+        | null -> [|".jpg"; ".jpeg"; ".png"; ".webp"|]
+        | arr -> arr
 
     let allowedMimeTypes =
-        let configured = configuration.GetSection("FileUpload:AllowedMimeTypes").Get<string[]>()
-        if isNull configured then [|"image/jpeg"; "image/png"; "image/webp"|] else configured
-
-    let validateMagicNumbers =
-        let configValue = configuration.["FileUpload:ValidateMagicNumbers"]
-        if String.IsNullOrEmpty(configValue) then true else Boolean.Parse(configValue)
-
-    let maxImageWidth =
-        let configValue = configuration.["FileUpload:MaxImageWidth"]
-        if String.IsNullOrEmpty(configValue) then 10000 else Int32.Parse(configValue)
-
-    let maxImageHeight =
-        let configValue = configuration.["FileUpload:MaxImageHeight"]
-        if String.IsNullOrEmpty(configValue) then 10000 else Int32.Parse(configValue)
-
-    let maxImagePixels =
-        let configValue = configuration.["FileUpload:MaxImagePixels"]
-        if String.IsNullOrEmpty(configValue) then 50000000L else Int64.Parse(configValue)
-
-    let validateImageDimensions =
-        let configValue = configuration.["FileUpload:ValidateImageDimensions"]
-        if String.IsNullOrEmpty(configValue) then true else Boolean.Parse(configValue)
+        match configuration.GetSection("FileUpload:AllowedMimeTypes").Get<string[]>() with
+        | null -> [|"image/jpeg"; "image/png"; "image/webp"|]
+        | arr -> arr
 
     let jpegMagic = [| 0xFFuy; 0xD8uy; 0xFFuy |]
     let pngMagic = [| 0x89uy; 0x50uy; 0x4Euy; 0x47uy; 0x0Duy; 0x0Auy; 0x1Auy; 0x0Auy |]
@@ -53,16 +50,8 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
     let gif89Magic = [| 0x47uy; 0x49uy; 0x46uy; 0x38uy; 0x39uy; 0x61uy |]
 
     let startsWith (buffer: byte[]) (bufferLength: int) (magicNumber: byte[]) =
-        if bufferLength < magicNumber.Length then
-            false
-        else
-            let mutable matches = true
-            let mutable i = 0
-            while matches && i < magicNumber.Length do
-                if buffer.[i] <> magicNumber.[i] then
-                    matches <- false
-                i <- i + 1
-            matches
+        bufferLength >= magicNumber.Length &&
+        magicNumber |> Array.forall2 (=) buffer.[0..magicNumber.Length-1]
 
     let detectFormatFromMagic (buffer: byte[]) (bytesRead: int) =
         if startsWith buffer bytesRead jpegMagic then Some "JPEG"
@@ -72,48 +61,8 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         elif startsWith buffer bytesRead gif89Magic then Some "GIF89a"
         else None
 
-    member _.ValidateExtension(file: IFormFile) : Result<unit, string> =
-        let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
-
-        if String.IsNullOrEmpty(extension) then
-            Error "File has no extension"
-        elif not (allowedExtensions.Contains(extension)) then
-            Error (sprintf "File extension '%s' is not allowed. Allowed: %s"
-                extension (String.Join(", ", allowedExtensions)))
-        else
-            Ok ()
-
-    member _.ValidateMimeType(file: IFormFile) : Result<unit, string> =
-        if String.IsNullOrEmpty(file.ContentType) then
-            Error "File MIME type is missing"
-        elif not (allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant())) then
-            Error (sprintf "MIME type '%s' is not allowed. Allowed: %s"
-                file.ContentType (String.Join(", ", allowedMimeTypes)))
-        else
-            Ok ()
-
-    member _.ValidateFileSize(file: IFormFile) : Result<unit, string> =
-        let maxSizeBytes = int64 maxFileSizeInMB * 1024L * 1024L
-
-        if file.Length = 0L then
-            Error "File is empty"
-        elif file.Length > maxSizeBytes then
-            Error (sprintf "File size (%.2f MB) exceeds maximum allowed size (%d MB)"
-                (float file.Length / 1024.0 / 1024.0) maxFileSizeInMB)
-        else
-            Ok ()
-
-    member _.ValidateFileCount(fileCount: int) : Result<unit, string> =
-        if fileCount = 0 then
-            Error "No files provided"
-        elif fileCount > maxFilesPerUpload then
-            Error (sprintf "Too many files (%d). Maximum allowed: %d" fileCount maxFilesPerUpload)
-        else
-            Ok ()
-
-    member _.ValidateFileName(file: IFormFile) : Result<unit, string> =
+    let validateFileName (file: IFormFile) =
         let fileName = Path.GetFileName(file.FileName)
-
         if String.IsNullOrWhiteSpace(fileName) then
             Error "Invalid file name"
         elif fileName.Contains("..") || fileName.Contains("/") || fileName.Contains("\\") then
@@ -123,10 +72,38 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
         else
             Ok ()
 
-    member _.ValidateMagicNumberAndDimensions(file: IFormFile) : Result<string * int * int, string> =
+    let validateFileSize (file: IFormFile) =
+        let maxSizeBytes = int64 maxFileSizeInMB * 1024L * 1024L
+        if file.Length = 0L then
+            Error "File is empty"
+        elif file.Length > maxSizeBytes then
+            Error (sprintf "File size (%.2f MB) exceeds maximum allowed size (%d MB)"
+                (float file.Length / 1024.0 / 1024.0) maxFileSizeInMB)
+        else
+            Ok ()
+
+    let validateExtension (file: IFormFile) =
+        let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
+        if String.IsNullOrEmpty(extension) then
+            Error "File has no extension"
+        elif not (allowedExtensions.Contains(extension)) then
+            Error (sprintf "File extension '%s' is not allowed. Allowed: %s"
+                extension (String.Join(", ", allowedExtensions)))
+        else
+            Ok ()
+
+    let validateMimeType (file: IFormFile) =
+        if String.IsNullOrEmpty(file.ContentType) then
+            Error "File MIME type is missing"
+        elif not (allowedMimeTypes.Contains(file.ContentType.ToLowerInvariant())) then
+            Error (sprintf "MIME type '%s' is not allowed. Allowed: %s"
+                file.ContentType (String.Join(", ", allowedMimeTypes)))
+        else
+            Ok ()
+
+    let validateMagicNumberAndDimensions (file: IFormFile) =
         try
             use stream = file.OpenReadStream()
-
             let magicBuffer = Array.zeroCreate<byte> 8
             let bytesRead = stream.Read(magicBuffer, 0, 8)
 
@@ -134,44 +111,37 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
                 Error "File is too small to validate"
             else
                 let formatResult =
-                    if validateMagicNumbers then
+                    if not validateMagicNumbers then Ok "Skipped"
+                    else
                         match detectFormatFromMagic magicBuffer bytesRead with
                         | Some format -> Ok format
                         | None -> Error "File content does not match any valid image format (invalid magic number)"
-                    else
-                        Ok "Skipped"
 
                 match formatResult with
                 | Error msg -> Error msg
+                | Ok format when not validateImageDimensions -> Ok (format, 0, 0)
                 | Ok format ->
-                    if not validateImageDimensions then
-                        Ok (format, 0, 0)
+                    stream.Position <- 0L
+                    let imageInfo = Image.Identify(stream)
+
+                    if isNull imageInfo then
+                        Error "Unable to read image information"
                     else
-                        stream.Position <- 0L
+                        let width, height = imageInfo.Width, imageInfo.Height
+                        let totalPixels = int64 width * int64 height
 
-                        let imageInfo = Image.Identify(stream)
+                        logger.LogDebug("Image {FileName}: {Width}x{Height} ({Pixels} pixels)",
+                            file.FileName, width, height, totalPixels)
 
-                        if isNull imageInfo then
-                            Error "Unable to read image information"
+                        if width > maxImageWidth then
+                            Error (sprintf "Image width (%d) exceeds maximum allowed (%d)" width maxImageWidth)
+                        elif height > maxImageHeight then
+                            Error (sprintf "Image height (%d) exceeds maximum allowed (%d)" height maxImageHeight)
+                        elif totalPixels > maxImagePixels then
+                            Error (sprintf "Image size (%.1f MP) exceeds maximum allowed (%.1f MP). Possible decompression bomb."
+                                (float totalPixels / 1000000.0) (float maxImagePixels / 1000000.0))
                         else
-                            let width = imageInfo.Width
-                            let height = imageInfo.Height
-                            let totalPixels = int64 width * int64 height
-
-                            logger.LogDebug("Image {FileName}: {Width}x{Height} ({Pixels} pixels)",
-                                file.FileName, width, height, totalPixels)
-
-                            if width > maxImageWidth then
-                                Error (sprintf "Image width (%d) exceeds maximum allowed (%d)" width maxImageWidth)
-                            elif height > maxImageHeight then
-                                Error (sprintf "Image height (%d) exceeds maximum allowed (%d)" height maxImageHeight)
-                            elif totalPixels > maxImagePixels then
-                                let megapixels = float totalPixels / 1000000.0
-                                let maxMegapixels = float maxImagePixels / 1000000.0
-                                Error (sprintf "Image size (%.1f MP) exceeds maximum allowed (%.1f MP). Possible decompression bomb."
-                                    megapixels maxMegapixels)
-                            else
-                                Ok (format, width, height)
+                            Ok (format, width, height)
         with
         | :? OutOfMemoryException as ex ->
             logger.LogError(ex, "Out of memory while processing image {FileName} - possible image bomb", file.FileName)
@@ -180,44 +150,33 @@ type FileValidationService(configuration: IConfiguration, logger: ILogger<FileVa
             logger.LogError(ex, "Error validating image {FileName}", file.FileName)
             Error (sprintf "Error reading image: %s" ex.Message)
 
-    member this.ValidateFile(file: IFormFile) : Result<string, string> =
-        match this.ValidateFileName(file) with
-        | Error msg -> Error msg
-        | Ok _ ->
-            match this.ValidateFileSize(file) with
-            | Error msg -> Error msg
-            | Ok _ ->
-                match this.ValidateExtension(file) with
-                | Error msg -> Error msg
-                | Ok _ ->
-                    match this.ValidateMimeType(file) with
-                    | Error msg -> Error msg
-                    | Ok _ ->
-                        match this.ValidateMagicNumberAndDimensions(file) with
-                        | Error msg -> Error msg
-                        | Ok (format, width, height) ->
-                            if width > 0 && height > 0 then
-                                Ok (sprintf "%s (%dx%d)" format width height)
-                            else
-                                Ok format
+    member _.ValidateFileCount(fileCount: int) =
+        if fileCount = 0 then Error "No files provided"
+        elif fileCount > maxFilesPerUpload then Error (sprintf "Too many files (%d). Maximum allowed: %d" fileCount maxFilesPerUpload)
+        else Ok ()
+
+    member _.ValidateFile(file: IFormFile) : Result<string, string> =
+        validateFileName file
+        |> Result.bind (fun _ -> validateFileSize file)
+        |> Result.bind (fun _ -> validateExtension file)
+        |> Result.bind (fun _ -> validateMimeType file)
+        |> Result.bind (fun _ ->
+            validateMagicNumberAndDimensions file
+            |> Result.map (fun (format, width, height) ->
+                if width > 0 && height > 0 then sprintf "%s (%dx%d)" format width height
+                else format))
 
     member this.ValidateFiles(files: IFormFile list) : Result<unit, string list> =
         match this.ValidateFileCount(files.Length) with
         | Error msg -> Error [msg]
         | Ok _ ->
-            let validationResults =
+            let errors =
                 files
                 |> List.mapi (fun i file ->
                     match this.ValidateFile(file) with
-                    | Ok format -> Ok (i, file.FileName, format)
-                    | Error msg -> Error (sprintf "File %d (%s): %s" (i + 1) file.FileName msg)
-                )
+                    | Ok _ -> None
+                    | Error msg -> Some (sprintf "File %d (%s): %s" (i + 1) file.FileName msg))
+                |> List.choose id
 
-            let errors =
-                validationResults
-                |> List.choose (function Error msg -> Some msg | Ok _ -> None)
-
-            if errors.IsEmpty then
-                Ok ()
-            else
-                Error errors
+            if errors.IsEmpty then Ok ()
+            else Error errors

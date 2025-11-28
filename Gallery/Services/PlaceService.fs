@@ -14,41 +14,35 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
     static let createPlaceLock = new SemaphoreSlim(1, 1)
 
     let formatDateForDisplay (isoDate: string) =
-        try
-            let date = DateTime.ParseExact(isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture)
-            date.ToString("dd MMM, yyyy")
-        with
-        | _ -> isoDate
+        match DateTime.TryParseExact(isoDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None) with
+        | true, date -> date.ToString("dd MMM, yyyy")
+        | false, _ -> isoDate
 
     let generateDisplayText (startDate: string) (endDate: string option) =
         let formattedStart = formatDateForDisplay startDate
         match endDate with
-        | None -> formattedStart
         | Some endDateStr when not (String.IsNullOrWhiteSpace(endDateStr)) ->
             let formattedEnd = formatDateForDisplay endDateStr
-            if formattedStart = formattedEnd then formattedStart
+            if formattedStart = formattedEnd then
+                formattedStart
             else
-                let startDay = formattedStart.Substring(0, 2)
-                sprintf "%s-%s" startDay formattedEnd
+                sprintf "%s-%s" (formattedStart.Substring(0, 2)) formattedEnd
         | _ -> formattedStart
 
     let buildTripDates (startDate: string) (endDateRaw: string) =
-        let endDate = if isNull endDateRaw then None else Some(endDateRaw)
-        let isSingleDay = isNull endDateRaw
-        let displayText = generateDisplayText startDate endDate
+        let endDate = if isNull endDateRaw then None else Some endDateRaw
         {
             StartDate = startDate
             EndDate = endDate
-            IsSingleDay = isSingleDay
-            DisplayText = displayText
+            IsSingleDay = isNull endDateRaw
+            DisplayText = generateDisplayText startDate endDate
         }
 
     let toPlaceDetailPage (place: Place) =
         let tripDates = buildTripDates place.StartDate place.EndDate
-
         let photos =
             place.Photos
-                .OrderBy(fun ph -> ph.PhotoNum :> obj)
+                .OrderBy(fun ph -> ph.PhotoNum)
                 .Select(fun ph -> {
                     Num = ph.PhotoNum
                     Slug = ph.Slug
@@ -69,13 +63,24 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             Photos = photos
         }
 
-    member this.GetAllPlacesAsync() =
+    let getFavoritePhoto (photos: ResizeArray<Photo>) =
+        if photos.Count = 0 then
+            None, None
+        else
+            let favorite = photos |> Seq.tryFind (fun ph -> ph.IsFavorite)
+            match favorite with
+            | Some photo -> Some photo.PhotoNum, Some photo.FileName
+            | None ->
+                let first = photos |> Seq.minBy (fun ph -> ph.PhotoNum)
+                Some first.PhotoNum, Some first.FileName
+
+    member _.GetAllPlacesAsync() =
         task {
             let! places =
                 context.Places
                     .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
-                    .OrderByDescending(fun p -> p.CreatedAt :> obj)
+                    .OrderByDescending(fun p -> p.CreatedAt)
                     .ToListAsync()
 
             logger.LogDebug("Loaded {Count} places from database", places.Count)
@@ -83,15 +88,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             return places
                 |> Seq.map (fun p ->
                     let tripDates = buildTripDates p.StartDate p.EndDate
-
-                    let favoritePhotoNum, favoritePhotoFileName =
-                        let photos = p.Photos |> Seq.sortBy (fun ph -> ph.PhotoNum) |> Seq.toArray
-                        if photos.Length = 0 then
-                            None, None
-                        else
-                            match photos |> Array.tryFind (fun ph -> ph.IsFavorite) with
-                            | Some photo -> Some(photo.PhotoNum), Some(photo.FileName)
-                            | None -> Some(photos.[0].PhotoNum), Some(photos.[0].FileName)
+                    let favoritePhotoNum, favoritePhotoFileName = getFavoritePhoto p.Photos
 
                     {
                         Id = p.Id
@@ -108,7 +105,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 |> Seq.toList
         }
 
-    member this.GetPlaceByIdAsync(id: int) =
+    member _.GetPlaceByIdAsync(id: int) =
         task {
             let! place =
                 context.Places
@@ -122,7 +119,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 return Some(toPlaceDetailPage place)
         }
 
-    member this.GetPlaceBySlugAsync(slug: string) =
+    member _.GetPlaceBySlugAsync(slug: string) =
         task {
             let! place =
                 context.Places
@@ -136,7 +133,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 return Some(toPlaceDetailPage place)
         }
 
-    member this.CreatePlaceAsync(name: string, location: string, country: string, startDate: string, endDate: string option) =
+    member _.CreatePlaceAsync(name: string, location: string, country: string, startDate: string, endDate: string option) =
         task {
             let! _ = createPlaceLock.WaitAsync()
 
@@ -168,7 +165,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 createPlaceLock.Release() |> ignore
         }
 
-    member this.UpdatePlaceAsync(id: int, name: string, location: string, country: string, startDate: string, endDate: string option) =
+    member _.UpdatePlaceAsync(id: int, name: string, location: string, country: string, startDate: string, endDate: string option) =
         task {
             let! place = context.Places.FindAsync(id)
 
@@ -191,7 +188,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 return true
         }
 
-    member this.DeletePlaceAsync(id: int) =
+    member _.DeletePlaceAsync(id: int) =
         task {
             let! place = context.Places.FindAsync(id)
 
@@ -206,7 +203,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 return true
         }
 
-    member this.IncrementFavoritesAsync(id: int) =
+    member _.IncrementFavoritesAsync(id: int) =
         task {
             let! place = context.Places.FindAsync(id)
 
@@ -215,16 +212,15 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 place.UpdatedAt <- DateTime.UtcNow
                 let! _ = context.SaveChangesAsync()
                 logger.LogDebug("Incremented favorites for place {PlaceId} to {Count}", id, place.Favorites)
-                return ()
         }
 
-    member this.GetTotalFavoritesAsync() =
+    member _.GetTotalFavoritesAsync() =
         task {
             let! total = context.Places.SumAsync(fun p -> p.Favorites)
             return total
         }
 
-    member this.GetPlaceCountAsync() =
+    member _.GetPlaceCountAsync() =
         task {
             let! count = context.Places.CountAsync()
             return count

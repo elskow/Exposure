@@ -9,6 +9,7 @@ type PlaceController(placeService: PlaceService) =
     inherit Controller()
 
     [<Route("places/{slug}")>]
+    [<ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any, VaryByQueryKeys = [| "slug" |])>]
     member this.Index (slug: string) =
         task {
             let! placeDetail = placeService.GetPlaceBySlugAsync(slug)
@@ -18,6 +19,7 @@ type PlaceController(placeService: PlaceService) =
         }
 
     [<Route("places/{placeSlug}/photos/{photoSlug}")>]
+    [<ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any, VaryByQueryKeys = [| "placeSlug"; "photoSlug" |])>]
     member this.Detail (placeSlug: string, photoSlug: string) =
         task {
             let! placeDetailOpt = placeService.GetPlaceBySlugAsync(placeSlug)

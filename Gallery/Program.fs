@@ -10,6 +10,7 @@ open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Microsoft.AspNetCore.Authentication.Cookies
 open Microsoft.AspNetCore.Http
+open Microsoft.AspNetCore.ResponseCompression
 open Microsoft.EntityFrameworkCore
 open Gallery.Data
 open Gallery.Services
@@ -24,12 +25,30 @@ module Program =
     let main args =
         let builder = WebApplication.CreateBuilder(args)
 
-        builder
-            .Services
-            .AddControllersWithViews()
-            .AddRazorRuntimeCompilation()
+        let mvcBuilder = builder.Services.AddControllersWithViews()
+
+        if builder.Environment.IsDevelopment() then
+            mvcBuilder.AddRazorRuntimeCompilation() |> ignore
 
         builder.Services.AddRazorPages()
+
+        builder.Services.AddResponseCompression(fun options ->
+            options.EnableForHttps <- true
+            options.Providers.Add<BrotliCompressionProvider>()
+            options.Providers.Add<GzipCompressionProvider>()
+            options.MimeTypes <- ResponseCompressionDefaults.MimeTypes
+                |> Seq.append [| "image/svg+xml"; "application/json"; "text/css"; "application/javascript" |]
+        ) |> ignore
+
+        builder.Services.Configure<BrotliCompressionProviderOptions>(fun (options: BrotliCompressionProviderOptions) ->
+            options.Level <- System.IO.Compression.CompressionLevel.Optimal
+        ) |> ignore
+
+        builder.Services.AddResponseCaching() |> ignore
+
+        builder.Services.AddOutputCache(fun options ->
+            options.AddBasePolicy(fun builder -> builder.Expire(TimeSpan.FromMinutes(1.0)) |> ignore)
+        ) |> ignore
 
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
         builder.Services.AddDbContext<GalleryDbContext>(fun options ->
@@ -127,9 +146,22 @@ module Program =
 
         app.UseHttpsRedirection()
 
+        if not (builder.Environment.IsDevelopment()) then
+            app.UseResponseCompression() |> ignore
+
         app.UseSecurityHeaders() |> ignore
 
-        app.UseStaticFiles()
+        app.UseResponseCaching() |> ignore
+
+        app.UseOutputCache() |> ignore
+
+        app.UseStaticFiles(
+            StaticFileOptions(
+                OnPrepareResponse = fun ctx ->
+                    if not (builder.Environment.IsDevelopment()) then
+                        ctx.Context.Response.Headers.["Cache-Control"] <- "public,max-age=31536000,immutable"
+            )
+        )
         app.UseRouting()
         app.UseAuthentication()
         app.UseAuthorization()
