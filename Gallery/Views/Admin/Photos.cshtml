@@ -285,7 +285,8 @@
             onprocessfiles: () => {
                 // All files have been uploaded
                 setTimeout(() => {
-                    location.reload();
+                    // Cache-busting reload to ensure fresh data
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
                 }, 1000);
             }
         });
@@ -328,11 +329,14 @@
             const photoItems = Array.from(document.querySelectorAll('.photo-item'));
             const newOrder = photoItems.map(el => parseInt(el.dataset.photoNum));
 
+            console.log('Saving photo order:', newOrder);
+
             try {
                 const formData = new FormData();
                 formData.append('placeId', placeId);
-                newOrder.forEach((num, index) => {
-                    formData.append(`order[${index}]`, num);
+                // Send each order value with the same key name for array binding
+                newOrder.forEach((num) => {
+                    formData.append('order', num);
                 });
 
                 // Get anti-forgery token
@@ -341,7 +345,8 @@
 
                 const response = await fetch('/admin/photos/reorder', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    cache: 'no-store'
                 });
 
                 const result = await response.json();
@@ -350,7 +355,8 @@
                     hasReordered = false;
                     document.getElementById('reorderActions').style.display = 'none';
                     document.getElementById('reorderHint').style.display = 'block';
-                    location.reload(); // Reload to show updated order
+                    // Cache-busting reload to ensure fresh data
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
                 } else {
                     alert('Failed to save order: ' + result.message);
                 }
@@ -403,7 +409,8 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    location.reload(); // Reload to show updated favorite status
+                    // Cache-busting reload to ensure fresh data
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
                 } else {
                     alert('Failed to set favorite: ' + result.message);
                 }
@@ -435,7 +442,8 @@
                 const result = await response.json();
 
                 if (result.success) {
-                    location.reload(); // Reload to show updated photos
+                    // Cache-busting reload to ensure fresh data
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
                 } else {
                     alert('Failed to delete photo: ' + result.message);
                 }

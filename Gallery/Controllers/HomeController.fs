@@ -1,6 +1,5 @@
 namespace Gallery.Controllers
 
-open System
 open System.Diagnostics
 open Microsoft.AspNetCore.Mvc
 open Microsoft.Extensions.Logging
@@ -10,9 +9,7 @@ open Gallery.Services
 type HomeController(logger: ILogger<HomeController>, placeService: PlaceService) =
     inherit Controller()
 
-    // 1. Root Route
     [<Route("")>]
-    [<ResponseCache(Duration = 60, Location = ResponseCacheLocation.Any)>]
     member this.Index () =
         task {
             let! places = placeService.GetAllPlacesAsync()
@@ -20,7 +17,6 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
         }
 
     [<Route("error")>]
-    [<ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)>]
     member this.Error () =
         let reqId =
             if isNull Activity.Current then
@@ -30,7 +26,6 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
         this.View({ RequestId = reqId })
 
     [<Route("404")>]
-    [<ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)>]
     member this.NotFound () =
         this.HttpContext.Response.StatusCode <- 404
         this.View("NotFound")

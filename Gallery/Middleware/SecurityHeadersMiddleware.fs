@@ -17,7 +17,7 @@ type SecurityHeadersMiddleware(next: RequestDelegate) =
 
         let csp = String.concat "; " [
             "default-src 'self'"
-            "script-src 'self' 'unsafe-inline'"
+            "script-src 'self' 'unsafe-inline' blob:"
             "style-src 'self' 'unsafe-inline'"
             "img-src 'self' data: blob:"
             "font-src 'self'"
@@ -26,6 +26,7 @@ type SecurityHeadersMiddleware(next: RequestDelegate) =
             "form-action 'self'"
             "base-uri 'self'"
             "object-src 'none'"
+            "worker-src 'self' blob:"
         ]
         headers.["Content-Security-Policy"] <- csp
 

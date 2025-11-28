@@ -10,8 +10,9 @@ open Microsoft.AspNetCore.Mvc
 open Microsoft.Extensions.Configuration
 open Gallery.Models
 open Gallery.Services
+open Microsoft.Extensions.Logging
 
-type AdminController(placeService: PlaceService, photoService: PhotoService, authService: AuthenticationService, pathValidation: PathValidationService, inputValidation: InputValidationService, configuration: IConfiguration) =
+type AdminController(placeService: PlaceService, photoService: PhotoService, authService: AuthenticationService, pathValidation: PathValidationService, inputValidation: InputValidationService, configuration: IConfiguration, logger: ILogger<AdminController>) =
     inherit Controller()
 
     let toPlaceSummary (placeDetail: PlaceDetailPage) =
