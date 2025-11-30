@@ -28,6 +28,12 @@ module Program =
     let main args =
         let builder = WebApplication.CreateBuilder(args)
 
+        // Add environment variables with custom prefix for easier Docker/K8s configuration
+        // e.g., GALLERY__Authentication__Mode, GALLERY__Authentication__Local__Username
+        builder.Configuration
+            .AddEnvironmentVariables("GALLERY__")
+            |> ignore
+
         // Configure more aggressive GC for lower memory
         if not (builder.Environment.IsDevelopment()) then
             GCSettings.LargeObjectHeapCompactionMode <- GCLargeObjectHeapCompactionMode.CompactOnce
@@ -188,8 +194,15 @@ module Program =
                 headers.["Last-Modified"] <- lastModified.ToString("R")
 
             if not (builder.Environment.IsDevelopment()) then
-                let extension = Path.GetExtension(ctx.File.Name).ToLowerInvariant()
-                let isImage = [| ".jpg"; ".jpeg"; ".png"; ".webp"; ".gif"; ".svg"; ".ico" |] |> Array.contains extension
+                let extension = Path.GetExtension(ctx.File.Name)
+                let isImage =
+                    extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".png", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".webp", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".gif", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".svg", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".ico", StringComparison.OrdinalIgnoreCase)
 
                 if isImage then
                     headers.["Cache-Control"] <- "public,max-age=31536000,immutable"

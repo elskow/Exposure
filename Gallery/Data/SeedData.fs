@@ -12,7 +12,7 @@ module SeedData =
             if List.isEmpty existingPlaces then
                 logger.LogInformation("Seeding database with sample data...")
 
-                let! place1Id = placeService.CreatePlaceAsync(
+                let! place1Slug = placeService.CreatePlaceAsync(
                     "Santorini Sunsets",
                     "Oia",
                     "Greece",
@@ -20,7 +20,7 @@ module SeedData =
                     Some("2024-06-18")
                 )
 
-                let! place2Id = placeService.CreatePlaceAsync(
+                let! place2Slug = placeService.CreatePlaceAsync(
                     "Tokyo Nights",
                     "Shibuya",
                     "Japan",
@@ -28,7 +28,7 @@ module SeedData =
                     Some("2024-09-10")
                 )
 
-                let! place3Id = placeService.CreatePlaceAsync(
+                let! place3Slug = placeService.CreatePlaceAsync(
                     "Swiss Alps",
                     "Zermatt",
                     "Switzerland",
@@ -36,7 +36,7 @@ module SeedData =
                     None
                 )
 
-                let! place4Id = placeService.CreatePlaceAsync(
+                let! place4Slug = placeService.CreatePlaceAsync(
                     "Parisian Cafés",
                     "Le Marais",
                     "France",
@@ -45,7 +45,7 @@ module SeedData =
                 )
 
                 logger.LogInformation("Database seeded successfully with {Count} places!", 4)
-                logger.LogDebug("Place IDs: {Place1}, {Place2}, {Place3}, {Place4}", place1Id, place2Id, place3Id, place4Id)
+                logger.LogDebug("Place slugs: {Place1}, {Place2}, {Place3}, {Place4}", place1Slug, place2Slug, place3Slug, place4Slug)
             else
                 logger.LogInformation("Database already contains {Count} place(s). Skipping seed.", existingPlaces.Length)
         }

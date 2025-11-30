@@ -58,6 +58,16 @@ ENV DOTNET_TieredPGO=1
 ENV DOTNET_TC_QuickJitForLoops=1
 ENV DOTNET_ReadyToRun=1
 
+# Authentication defaults (override with -e or docker-compose)
+# GALLERY__Authentication__Mode: "Local" or "OIDC"
+# GALLERY__Authentication__Local__Username: admin username
+# GALLERY__Authentication__Local__Password: admin password
+# GALLERY__Authentication__Local__RequireTOTP: true/false
+# GALLERY__Authentication__OIDC__Authority: OIDC provider URL
+# GALLERY__Authentication__OIDC__ClientId: OIDC client ID
+# GALLERY__Authentication__OIDC__ClientSecret: OIDC client secret
+# GALLERY__ConnectionStrings__DefaultConnection: SQLite connection string
+
 # Health check for container orchestration
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1

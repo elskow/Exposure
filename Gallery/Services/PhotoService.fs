@@ -12,14 +12,14 @@ open Microsoft.Extensions.Logging
 open Gallery.Data
 open Gallery.Models
 
-/// Result type for parallel file processing
-[<NoComparison>]
+/// Result type for parallel file processing - struct to avoid heap allocation
+[<Struct; NoComparison>]
 type internal FileProcessingResult = {
     OriginalFile: IFormFile
     FileName: string
     FilePath: string
     Success: bool
-    Error: string option
+    Error: string voption  // Use ValueOption for struct compatibility
 }
 
 type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment, fileValidation: FileValidationService, pathValidation: PathValidationService, malwareScanning: MalwareScanningService, slugGenerator: SlugGeneratorService, imageProcessing: ImageProcessingService, logger: ILogger<PhotoService>) =
@@ -47,8 +47,8 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
     /// Process a single file: copy to disk and generate thumbnails (I/O bound, can run in parallel)
     member private this.ProcessFileAsync(file: IFormFile, photosDir: string) =
         task {
-            let extension = Path.GetExtension(file.FileName).ToLowerInvariant()
-            let normalizedExtension = if extension = ".jpeg" then ".jpg" else extension
+            let extension = Path.GetExtension(file.FileName)
+            let normalizedExtension = if extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase) then ".jpg" else extension.ToLowerInvariant()
             let uuid = Guid.NewGuid().ToString()
             let fileName = $"{uuid}{normalizedExtension}"
             let filePath = Path.Combine(photosDir, fileName)
@@ -70,9 +70,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     with cleanupEx ->
                         logger.LogError(cleanupEx, "Cleanup failed after thumbnail error for {FileName}", file.FileName)
 
-                    return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = false; Error = Some $"Thumbnails failed: {msg}" }
+                    return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = false; Error = ValueSome $"Thumbnails failed: {msg}" }
                 | Ok _ ->
-                    return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = true; Error = None }
+                    return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = true; Error = ValueNone }
             with ex ->
                 // Cleanup on any failure
                 try
@@ -82,7 +82,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                 with _ -> ()
 
                 logger.LogError(ex, "File processing failed for {FileName}", file.FileName)
-                return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = false; Error = Some ex.Message }
+                return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = false; Error = ValueSome ex.Message }
         }
 
     member this.UploadPhotosAsync(placeId: int, files: IFormFile list) =
@@ -143,7 +143,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                             // SEQUENTIAL PHASE: Save to database (prevents race conditions)
                             let mutable uploadedCount = 0
-                            let mutable lastError = None
+                            let mutable lastError = ValueNone
                             let mutable photoNum = startPhotoNum
 
                             for result in processingResults do
@@ -175,7 +175,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                             ()
                                         with cleanupEx ->
                                             logger.LogError(cleanupEx, "Cleanup failed after database error for {FileName}", result.FileName)
-                                        lastError <- Some $"Database error for {result.OriginalFile.FileName}"
+                                        lastError <- ValueSome $"Database error for {result.OriginalFile.FileName}"
                                 else
                                     lastError <- result.Error
 
@@ -236,31 +236,32 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             let! _ = uploadLock.WaitAsync()
 
             try
-                // Use AsTracking() to override the default NoTracking behavior for updates
-                let! photos =
+                let! photoCount =
                     context.Photos
-                        .AsTracking()
                         .Where(fun p -> p.PlaceId = placeId)
-                        .ToListAsync()
+                        .CountAsync()
 
-                if photos.Count <> newOrder.Length then
-                    logger.LogWarning("Reorder failed: photo count mismatch for placeId {PlaceId}. Expected {Expected}, got {Actual}", placeId, photos.Count, newOrder.Length)
+                if photoCount <> newOrder.Length then
+                    logger.LogWarning("Reorder failed: photo count mismatch for placeId {PlaceId}. Expected {Expected}, got {Actual}", placeId, photoCount, newOrder.Length)
                     return false
                 else
-                    // First pass: set temporary numbers to avoid conflicts
+                    // Use bulk updates - two passes but with ExecuteUpdateAsync
+                    // First pass: offset all to temporary range
                     for (newNum, oldNum) in newOrder |> List.mapi (fun i oldNum -> (i + 1, oldNum)) do
-                        let photo = photos.FirstOrDefault(fun p -> p.PhotoNum = oldNum)
-                        if not (isNull photo) then
-                            photo.PhotoNum <- 10000 + newNum
+                        let! _ =
+                            context.Photos
+                                .Where(fun p -> p.PlaceId = placeId && p.PhotoNum = oldNum)
+                                .ExecuteUpdateAsync(fun setters ->
+                                    setters.SetProperty((fun p -> p.PhotoNum), 10000 + newNum))
+                        ()
 
-                    let! _ = context.SaveChangesAsync()
+                    // Second pass: remove offset
+                    let! _ =
+                        context.Photos
+                            .Where(fun p -> p.PlaceId = placeId && p.PhotoNum >= 10000)
+                            .ExecuteUpdateAsync(fun setters ->
+                                setters.SetProperty((fun p -> p.PhotoNum), (fun p -> p.PhotoNum - 10000)))
 
-                    // Second pass: set final numbers
-                    for photo in photos do
-                        if photo.PhotoNum >= 10000 then
-                            photo.PhotoNum <- photo.PhotoNum - 10000
-
-                    let! _ = context.SaveChangesAsync()
                     logger.LogInformation("Reordered photos for placeId {PlaceId}", placeId)
                     return true
             finally
@@ -310,27 +311,37 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             let! _ = uploadLock.WaitAsync()
 
             try
-                let! photo =
-                    context.Photos
-                        .AsTracking()
-                        .FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
-
-                if isNull photo then
-                    logger.LogWarning("Photo not found for favorite toggle: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
-                    return false
+                // Use bulk update for both operations - more efficient than loading entity
+                if isFavorite then
+                    // Clear existing favorites and set new one in single transaction
+                    let! cleared =
+                        context.Photos
+                            .Where(fun p -> p.PlaceId = placeId && p.IsFavorite)
+                            .ExecuteUpdateAsync(fun setters ->
+                                setters.SetProperty((fun p -> p.IsFavorite), false))
+                    let! updated =
+                        context.Photos
+                            .Where(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
+                            .ExecuteUpdateAsync(fun setters ->
+                                setters.SetProperty((fun p -> p.IsFavorite), true))
+                    if updated > 0 then
+                        logger.LogInformation("Set favorite for placeId {PlaceId}, photoNum {PhotoNum}, cleared {Cleared}", placeId, photoNum, cleared)
+                        return true
+                    else
+                        logger.LogWarning("Photo not found for favorite toggle: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
+                        return false
                 else
-                    if isFavorite then
-                        let! _ =
-                            context.Photos
-                                .Where(fun p -> p.PlaceId = placeId && p.PhotoNum <> photoNum && p.IsFavorite)
-                                .ExecuteUpdateAsync(fun setters ->
-                                    setters.SetProperty((fun p -> p.IsFavorite), false))
-                        ()
-
-                    photo.IsFavorite <- isFavorite
-                    let! _ = context.SaveChangesAsync()
-                    logger.LogInformation("Set favorite for placeId {PlaceId}, photoNum {PhotoNum}: {IsFavorite}", placeId, photoNum, isFavorite)
-                    return true
+                    let! updated =
+                        context.Photos
+                            .Where(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
+                            .ExecuteUpdateAsync(fun setters ->
+                                setters.SetProperty((fun p -> p.IsFavorite), false))
+                    if updated > 0 then
+                        logger.LogInformation("Removed favorite for placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
+                        return true
+                    else
+                        logger.LogWarning("Photo not found for favorite toggle: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
+                        return false
             finally
                 uploadLock.Release() |> ignore
         }

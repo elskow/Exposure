@@ -67,8 +67,8 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
                     errors |> List.iter (fun err -> this.ModelState.AddModelError("", err))
                     return this.View(model) :> IActionResult
                 | Ok (validName, validLocation, validCountry, validStartDate, validEndDate) ->
-                    let! placeId = placeService.CreatePlaceAsync(validName, validLocation, validCountry, validStartDate, validEndDate)
-                    return this.RedirectToAction("Edit", {| id = placeId |}) :> IActionResult
+                    let! slug = placeService.CreatePlaceAsync(validName, validLocation, validCountry, validStartDate, validEndDate)
+                    return this.RedirectToAction("Edit", {| slug = slug |}) :> IActionResult
         }
 
     [<Route("/admin/login")>]
@@ -195,10 +195,13 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
         task {
             match inputValidation.ValidateId(id, "Place ID") with
             | Error msg ->
-                return this.BadRequest(msg) :> IActionResult
+                return this.BadRequest({| success = false; message = msg |}) :> IActionResult
             | Ok validId ->
                 let! success = photoService.DeletePlaceWithPhotosAsync(validId, placeService.DeletePlaceAsync)
-                return this.RedirectToAction("Index") :> IActionResult
+                if success then
+                    return this.Json({| success = true; message = "Place deleted successfully" |}) :> IActionResult
+                else
+                    return this.NotFound({| success = false; message = "Place not found" |}) :> IActionResult
         }
 
     [<Route("/admin/photos/{slug}")>]

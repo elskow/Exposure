@@ -167,7 +167,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 let! _ = context.SaveChangesAsync()
 
                 logger.LogInformation("Created place {PlaceId}: {Name} ({Slug})", place.Id, place.Name, place.Slug)
-                return place.Id
+                return place.Slug
             finally
                 createPlaceLock.Release() |> ignore
         }

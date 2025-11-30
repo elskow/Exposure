@@ -1,0 +1,56 @@
+services:
+  gallery:
+    build:
+      context: .
+      dockerfile: Gallery/Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persist database and uploaded photos
+      - gallery-data:/app/data
+      - gallery-photos:/app/wwwroot/images/places
+    environment:
+      # Authentication Mode: "Local" or "OIDC"
+      - GALLERY__Authentication__Mode=Local
+      
+      # Local Authentication (when Mode=Local)
+      - GALLERY__Authentication__Local__Username=admin
+      - GALLERY__Authentication__Local__Password=admin123
+      - GALLERY__Authentication__Local__RequireTOTP=false
+      
+      # OIDC Authentication (when Mode=OIDC)
+      # - GALLERY__Authentication__OIDC__Authority=https://login.microsoftonline.com/your-tenant/v2.0
+      # - GALLERY__Authentication__OIDC__ClientId=your-client-id
+      # - GALLERY__Authentication__OIDC__ClientSecret=your-client-secret
+      # - GALLERY__Authentication__OIDC__Scopes=openid profile email
+      
+      # Database (optional - defaults to /app/data/gallery.db)
+      # - GALLERY__ConnectionStrings__DefaultConnection=Data Source=/app/data/gallery.db;Cache=Shared;Mode=ReadWriteCreate;Pooling=True
+      
+      # File Upload Settings (optional)
+      # - GALLERY__FileUpload__MaxFileSizeInMB=10
+      # - GALLERY__FileUpload__MaxFilesPerUpload=50
+      
+      # Malware Scanning (optional - requires ClamAV)
+      # - GALLERY__MalwareScanning__Enabled=true
+      # - GALLERY__MalwareScanning__ClamAV__Server=clamav
+      # - GALLERY__MalwareScanning__ClamAV__Port=3310
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # Optional: ClamAV for malware scanning
+  # clamav:
+  #   image: clamav/clamav:latest
+  #   volumes:
+  #     - clamav-data:/var/lib/clamav
+  #   restart: unless-stopped
+
+volumes:
+  gallery-data:
+  gallery-photos:
+  # clamav-data:
