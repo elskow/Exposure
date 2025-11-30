@@ -164,7 +164,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
             try
                 let! photo =
-                    context.Photos.FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
+                    context.Photos
+                        .AsTracking()
+                        .FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
 
                 if isNull photo then
                     logger.LogWarning("Photo not found for deletion: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)
@@ -186,6 +188,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                     let! remainingPhotos =
                         context.Photos
+                            .AsTracking()
                             .Where(fun p -> p.PlaceId = placeId && p.PhotoNum > photoNum)
                             .OrderBy(fun p -> p.PhotoNum :> obj)
                             .ToListAsync()
@@ -206,8 +209,10 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             let! _ = uploadLock.WaitAsync()
 
             try
+                // Use AsTracking() to override the default NoTracking behavior for updates
                 let! photos =
                     context.Photos
+                        .AsTracking()
                         .Where(fun p -> p.PlaceId = placeId)
                         .ToListAsync()
 
@@ -215,6 +220,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     logger.LogWarning("Reorder failed: photo count mismatch for placeId {PlaceId}. Expected {Expected}, got {Actual}", placeId, photos.Count, newOrder.Length)
                     return false
                 else
+                    // First pass: set temporary numbers to avoid conflicts
                     for (newNum, oldNum) in newOrder |> List.mapi (fun i oldNum -> (i + 1, oldNum)) do
                         let photo = photos.FirstOrDefault(fun p -> p.PhotoNum = oldNum)
                         if not (isNull photo) then
@@ -222,6 +228,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                     let! _ = context.SaveChangesAsync()
 
+                    // Second pass: set final numbers
                     for photo in photos do
                         if photo.PhotoNum >= 10000 then
                             photo.PhotoNum <- photo.PhotoNum - 10000
@@ -233,16 +240,29 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                 uploadLock.Release() |> ignore
         }
 
-    member this.GetPhotosForPlaceAsync(placeId: int) =
+    member _.GetPhotosForPlaceAsync(placeId: int) =
         task {
-            let! photos =
+            let result = ResizeArray<Photo>()
+            let asyncEnum =
                 context.Photos
                     .AsNoTracking()
                     .Where(fun p -> p.PlaceId = placeId)
                     .OrderBy(fun p -> p.PhotoNum :> obj)
-                    .ToListAsync()
+                    .AsAsyncEnumerable()
 
-            return photos |> List.ofSeq
+            let enumerator = asyncEnum.GetAsyncEnumerator()
+            try
+                let mutable hasMore = true
+                while hasMore do
+                    let! moveNext = enumerator.MoveNextAsync().AsTask()
+                    if moveNext then
+                        result.Add(enumerator.Current)
+                    else
+                        hasMore <- false
+            finally
+                enumerator.DisposeAsync().AsTask().Wait()
+
+            return result |> List.ofSeq
         }
 
     member this.DeletePlaceWithPhotosAsync(placeId: int, deletePlaceFunc: int -> Task<bool>) =
@@ -277,7 +297,9 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
             try
                 let! photo =
-                    context.Photos.FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
+                    context.Photos
+                        .AsTracking()
+                        .FirstOrDefaultAsync(fun p -> p.PlaceId = placeId && p.PhotoNum = photoNum)
 
                 if isNull photo then
                     logger.LogWarning("Photo not found for favorite toggle: placeId {PlaceId}, photoNum {PhotoNum}", placeId, photoNum)

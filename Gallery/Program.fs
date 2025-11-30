@@ -4,6 +4,7 @@ namespace Gallery
 
 open System
 open System.IO
+open System.Runtime
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.StaticFiles
 open Microsoft.Extensions.Configuration
@@ -26,6 +27,11 @@ module Program =
     [<EntryPoint>]
     let main args =
         let builder = WebApplication.CreateBuilder(args)
+
+        // Configure more aggressive GC for lower memory
+        if not (builder.Environment.IsDevelopment()) then
+            GCSettings.LargeObjectHeapCompactionMode <- GCLargeObjectHeapCompactionMode.CompactOnce
+            // Don't use NoGC region
 
         let mvcBuilder = builder.Services.AddControllersWithViews()
 
@@ -53,8 +59,14 @@ module Program =
         ) |> ignore
 
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-        builder.Services.AddDbContext<GalleryDbContext>(fun options ->
-            options.UseSqlite(connectionString) |> ignore
+
+        // DbContext pooling for better memory efficiency
+        builder.Services.AddDbContextPool<GalleryDbContext>(
+            (fun options ->
+                options.UseSqlite(connectionString) |> ignore
+                options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking) |> ignore
+            ),
+            poolSize = 32
         ) |> ignore
 
         builder.Services.AddScoped<SlugGeneratorService>() |> ignore
@@ -109,6 +121,8 @@ module Program =
 
         let app = builder.Build()
 
+        // No custom middleware needed - GC settings in project file handle memory management
+
         task {
             use scope = app.Services.CreateScope()
             let logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Gallery.Startup")
@@ -139,6 +153,12 @@ module Program =
                         | Error msg -> logger.LogError("Failed to create admin user: {Message}", msg)
                     | Some _ -> ()
         } |> fun t -> t.Wait()
+
+        // Force GC and wait for finalizers
+        GC.Collect(2, GCCollectionMode.Aggressive, true, true)
+        GC.WaitForPendingFinalizers()
+        GC.Collect()
+        GCSettings.LargeObjectHeapCompactionMode <- GCLargeObjectHeapCompactionMode.CompactOnce
 
         if not (builder.Environment.IsDevelopment()) then
             app.UseExceptionHandler("/Home/Error")

@@ -40,6 +40,10 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
             .IsUnique()
             |> ignore
 
+        modelBuilder.Entity<Place>()
+            .HasIndex("CreatedAt")
+            |> ignore
+
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "PhotoNum")
             .IsUnique()

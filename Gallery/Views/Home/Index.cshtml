@@ -51,18 +51,16 @@
                         </td>
 
                         <td class="py-4 md:py-3 align-middle pr-3" role="cell">
-                            <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px] border border-black/5">
+                            <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px] border border-black/5 lazy-placeholder">
                                 @if (Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(place.FavoritePhotoFileName))
                                 {
                                     var fileName = place.FavoritePhotoFileName.Value;
-                                    var extension = System.IO.Path.GetExtension(fileName);
                                     var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(fileName);
-                                    var thumbFileName = nameWithoutExt + "-thumb" + extension;
-                                    <img src="/images/places/@(place.Id)/@thumbFileName"
+                                    var thumbFileName = nameWithoutExt + "-thumb.webp";
+                                    <img data-src="/images/places/@(place.Id)/@thumbFileName"
+                                         data-fallback="/images/places/@(place.Id)/@(place.FavoritePhotoFileName.Value)"
                                          alt="Preview of @place.Name"
-                                         class="w-full h-full object-cover"
-                                         loading="lazy"
-                                         onerror="this.src='/images/places/@(place.Id)/@(place.FavoritePhotoFileName.Value)';" />
+                                         class="w-full h-full object-cover" />
                                 }
                                 else
                                 {

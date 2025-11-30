@@ -255,24 +255,30 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
     [<HttpPost>]
     [<Authorize>]
     [<ValidateAntiForgeryToken>]
-    member this.ReorderPhotos(placeId: int, order: int[]) =
+    member this.ReorderPhotos([<FromForm>] placeId: int, [<FromForm>] order: int[]) =
         task {
+            // Handle null or empty order array
+            let orderArray = if isNull (box order) then [||] else order
+            
             match inputValidation.ValidateId(placeId, "Place ID") with
             | Error msg ->
                 return this.BadRequest({| success = false; message = msg |}) :> IActionResult
             | Ok validPlaceId ->
-                let orderValidations = order |> Array.map (fun o -> inputValidation.ValidateId(o, "Order value"))
-                let invalidOrders = orderValidations |> Array.choose (function Error msg -> Some msg | Ok _ -> None)
-
-                if invalidOrders.Length > 0 then
-                    return this.BadRequest({| success = false; message = invalidOrders.[0] |}) :> IActionResult
+                if orderArray.Length = 0 then
+                    return this.BadRequest({| success = false; message = "No order provided" |}) :> IActionResult
                 else
-                    let orderList = order |> Array.toList
-                    let! success = photoService.ReorderPhotosAsync(validPlaceId, orderList)
-                    if success then
-                        return this.Json({| success = true; message = "Photos reordered successfully" |}) :> IActionResult
+                    let orderValidations = orderArray |> Array.map (fun o -> inputValidation.ValidateId(o, "Order value"))
+                    let invalidOrders = orderValidations |> Array.choose (function Error msg -> Some msg | Ok _ -> None)
+
+                    if invalidOrders.Length > 0 then
+                        return this.BadRequest({| success = false; message = invalidOrders.[0] |}) :> IActionResult
                     else
-                        return this.BadRequest({| success = false; message = "Failed to reorder photos" |}) :> IActionResult
+                        let orderList = orderArray |> Array.toList
+                        let! success = photoService.ReorderPhotosAsync(validPlaceId, orderList)
+                        if success then
+                            return this.Json({| success = true; message = "Photos reordered successfully" |}) :> IActionResult
+                        else
+                            return this.BadRequest({| success = false; message = "Failed to reorder photos" |}) :> IActionResult
         }
 
     [<Route("/admin/photos/favorite")>]

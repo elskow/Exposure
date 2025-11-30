@@ -6,7 +6,7 @@ open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 open SixLabors.ImageSharp
 open SixLabors.ImageSharp.Processing
-open SixLabors.ImageSharp.Formats.Jpeg
+open SixLabors.ImageSharp.Formats.Webp
 
 type ThumbnailSize =
 
@@ -42,10 +42,9 @@ type ImageProcessingService(logger: ILogger<ImageProcessingService>) =
             (int (float width * ratio), maxDimension)
 
     member _.GetThumbnailFilename(originalFilename: string, size: ThumbnailSize) =
-        let extension = Path.GetExtension(originalFilename)
         let nameWithoutExt = Path.GetFileNameWithoutExtension(originalFilename)
         let suffix = getSuffix size
-        sprintf "%s%s%s" nameWithoutExt suffix extension
+        sprintf "%s%s.webp" nameWithoutExt suffix
 
     member private _.ResizeAndSave(image: Image, destPath: string, maxDimension: int) =
         task {
@@ -54,7 +53,7 @@ type ImageProcessingService(logger: ILogger<ImageProcessingService>) =
                 ctx.Resize(newWidth, newHeight, KnownResamplers.Lanczos3) |> ignore
             )
 
-            let encoder = JpegEncoder(Quality = Nullable(85))
+            let encoder = WebpEncoder(Quality = 80, FileFormat = WebpFileFormatType.Lossy)
             do! clonedImage.SaveAsync(destPath, encoder)
         }
 

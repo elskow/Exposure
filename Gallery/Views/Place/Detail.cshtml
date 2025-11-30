@@ -40,7 +40,68 @@
             text-decoration: none;
             border-radius: 4px;
         }
+
+        /* Progressive image loading */
+        .photo-container {
+            position: relative;
+        }
+        .photo-placeholder {
+            position: absolute;
+            inset: 0;
+            filter: blur(20px);
+            transform: scale(1.1);
+            transition: opacity 0.5s ease-out;
+            z-index: 1;
+        }
+        .photo-main {
+            position: relative;
+            z-index: 2;
+            opacity: 0;
+            transition: opacity 0.5s ease-out;
+        }
+        .photo-main.loaded {
+            opacity: 1;
+        }
+        .photo-placeholder.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .loading-spinner {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3;
+            transition: opacity 0.3s ease-out;
+        }
+        .loading-spinner.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #e5e5e5;
+            border-top-color: #111;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @@keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
+
+    <!-- Preload current image and adjacent images for smoother navigation -->
+    <link rel="preload" href="/images/places/@(Model.PlaceId)/@(Model.FileName)" as="image" />
+    @if (Model.NextPhotoFileName != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(Model.NextPhotoFileName))
+    {
+        <link rel="prefetch" href="/images/places/@(Model.PlaceId)/@(Model.NextPhotoFileName.Value)" as="image" />
+    }
+    @if (Model.PrevPhotoFileName != null && Microsoft.FSharp.Core.FSharpOption<string>.get_IsSome(Model.PrevPhotoFileName))
+    {
+        <link rel="prefetch" href="/images/places/@(Model.PlaceId)/@(Model.PrevPhotoFileName.Value)" as="image" />
+    }
 </head>
 <body class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden selection:bg-black selection:text-white" role="application" aria-label="Photo viewer">
 
@@ -109,11 +170,29 @@
 
     <main id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative w-full h-full overflow-hidden" role="main" tabindex="-1">
 
-        <figure>
-            <img src="/images/places/@(Model.PlaceId)/@(Model.FileName)"
+        <figure class="photo-container">
+            <!-- Loading spinner -->
+            <div class="loading-spinner" id="loadingSpinner">
+                <div class="spinner"></div>
+            </div>
+
+            <!-- Blurred placeholder (medium thumbnail) -->
+            @{
+                var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(Model.FileName);
+                var mediumFileName = nameWithoutExt + "-medium.webp";
+            }
+            <img src="/images/places/@(Model.PlaceId)/@mediumFileName"
+                 alt=""
+                 aria-hidden="true"
+                 class="photo-placeholder max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
+                 id="photoPlaceholder"
+                 onerror="this.style.display='none';" />
+
+            <!-- Full resolution image -->
+            <img data-src="/images/places/@(Model.PlaceId)/@(Model.FileName)"
                  alt="@Model.PlaceName - Photo @Model.PhotoNum of @Model.TotalPhotos taken in @Model.Location, @Model.Country during @Model.TripDates.DisplayText"
-                 class="max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
-                 loading="eager" />
+                 class="photo-main max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
+                 id="photoMain" />
         </figure>
 
     </main>
@@ -238,11 +317,50 @@
                 }
             }
 
+            // Progressive image loading - load full resolution after placeholder
+            function loadFullImage() {
+                const mainImg = document.getElementById('photoMain');
+                const placeholder = document.getElementById('photoPlaceholder');
+                const spinner = document.getElementById('loadingSpinner');
+                const fullSrc = mainImg.dataset.src;
+
+                if (!fullSrc) return;
+
+                const loader = new Image();
+
+                loader.onload = function() {
+                    mainImg.src = fullSrc;
+                    mainImg.classList.add('loaded');
+
+                    // Hide placeholder and spinner after transition
+                    setTimeout(function() {
+                        if (placeholder) placeholder.classList.add('hidden');
+                        if (spinner) spinner.classList.add('hidden');
+                    }, 100);
+                };
+
+                loader.onerror = function() {
+                    // If full image fails, keep showing placeholder
+                    if (spinner) spinner.classList.add('hidden');
+                    if (placeholder) {
+                        placeholder.classList.remove('photo-placeholder');
+                        placeholder.style.filter = 'none';
+                        placeholder.style.transform = 'none';
+                    }
+                };
+
+                loader.src = fullSrc;
+            }
+
             // Preload on page load
             if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', preloadAdjacentImages);
+                document.addEventListener('DOMContentLoaded', function() {
+                    preloadAdjacentImages();
+                    loadFullImage();
+                });
             } else {
                 preloadAdjacentImages();
+                loadFullImage();
             }
 
             // Add visual feedback for keyboard users

@@ -133,12 +133,12 @@
                              ondragstart="handlePhotoStart(event)"
                              ondragend="handlePhotoEnd(event)">
                             @{
-                                var extension = System.IO.Path.GetExtension(photo.FileName);
                                 var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(photo.FileName);
-                                var smallFileName = nameWithoutExt + "-small" + extension;
+                                var smallFileName = nameWithoutExt + "-small.webp";
                             }
                             <img src="/images/places/@(Model.PlaceId)/@smallFileName"
                                  alt="Photo @photo.Num"
+                                 loading="lazy"
                                  onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.FileName)';" />
 
                             @if (photo.IsFavorite)
@@ -334,9 +334,9 @@
             try {
                 const formData = new FormData();
                 formData.append('placeId', placeId);
-                // Send each order value with the same key name for array binding
-                newOrder.forEach((num) => {
-                    formData.append('order', num);
+                // Send each order value with indexed key for proper array binding in ASP.NET Core
+                newOrder.forEach((num, index) => {
+                    formData.append(`order[${index}]`, num);
                 });
 
                 // Get anti-forgery token

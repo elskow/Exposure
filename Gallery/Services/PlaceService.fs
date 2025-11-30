@@ -1,8 +1,10 @@
 namespace Gallery.Services
 
 open System
+open System.Collections.Generic
 open System.Globalization
 open System.Linq
+open System.Runtime.CompilerServices
 open System.Threading
 open Microsoft.EntityFrameworkCore
 open Microsoft.Extensions.Logging
@@ -74,36 +76,49 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 let first = photos |> Seq.minBy (fun ph -> ph.PhotoNum)
                 Some first.PhotoNum, Some first.FileName
 
-    member _.GetAllPlacesAsync() =
+    let mapToPlaceSummary (p: Place) =
+        let tripDates = buildTripDates p.StartDate p.EndDate
+        let favoritePhotoNum, favoritePhotoFileName = getFavoritePhoto p.Photos
+        {
+            Id = p.Id
+            Slug = p.Slug
+            Name = p.Name
+            Location = p.Location
+            Country = p.Country
+            Photos = p.Photos.Count
+            TripDates = tripDates
+            FavoritePhotoNum = favoritePhotoNum
+            FavoritePhotoFileName = favoritePhotoFileName
+        }
+
+    /// Streams places asynchronously for better memory efficiency with large datasets
+    member _.GetAllPlacesStreamingAsync() =
         task {
-            let! places =
+            let result = ResizeArray<PlaceSummary>()
+            let asyncEnum =
                 context.Places
                     .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
                     .OrderByDescending(fun p -> p.CreatedAt)
-                    .ToListAsync()
+                    .AsAsyncEnumerable()
 
-            logger.LogDebug("Loaded {Count} places from database", places.Count)
+            let enumerator = asyncEnum.GetAsyncEnumerator()
+            try
+                let mutable hasMore = true
+                while hasMore do
+                    let! moveNext = enumerator.MoveNextAsync().AsTask()
+                    if moveNext then
+                        result.Add(mapToPlaceSummary enumerator.Current)
+                    else
+                        hasMore <- false
+            finally
+                enumerator.DisposeAsync().AsTask().Wait()
 
-            return places
-                |> Seq.map (fun p ->
-                    let tripDates = buildTripDates p.StartDate p.EndDate
-                    let favoritePhotoNum, favoritePhotoFileName = getFavoritePhoto p.Photos
-
-                    {
-                        Id = p.Id
-                        Slug = p.Slug
-                        Name = p.Name
-                        Location = p.Location
-                        Country = p.Country
-                        Photos = p.Photos.Count
-                        TripDates = tripDates
-                        FavoritePhotoNum = favoritePhotoNum
-                        FavoritePhotoFileName = favoritePhotoFileName
-                    }
-                )
-                |> Seq.toList
+            logger.LogDebug("Streamed {Count} places from database", result.Count)
+            return result |> List.ofSeq
         }
+
+    member this.GetAllPlacesAsync() = this.GetAllPlacesStreamingAsync()
 
     member _.GetPlaceByIdAsync(id: int) =
         task {

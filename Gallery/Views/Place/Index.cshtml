@@ -18,17 +18,15 @@ ViewData["Title"] = Model.Name + " - Photo Gallery";
                class="group cursor-pointer w-full block focus:outline-none"
                aria-label="View photo @photo.Num">
 
-                <div class="relative w-full mb-4 bg-gray-100 border border-gray-300 aspect-[3/2] overflow-hidden rounded-[1px] group-focus:ring-2 group-focus:ring-black group-focus:ring-offset-2">
+                <div class="relative w-full mb-4 bg-gray-100 border border-gray-300 aspect-[3/2] overflow-hidden rounded-[1px] group-focus:ring-2 group-focus:ring-black group-focus:ring-offset-2 lazy-placeholder">
                     @{
-                        var extension = System.IO.Path.GetExtension(photo.FileName);
                         var nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(photo.FileName);
-                        var smallFileName = nameWithoutExt + "-small" + extension;
+                        var smallFileName = nameWithoutExt + "-small.webp";
                     }
-                    <img src="/images/places/@(Model.PlaceId)/@smallFileName"
+                    <img data-src="/images/places/@(Model.PlaceId)/@smallFileName"
+                         data-fallback="/images/places/@(Model.PlaceId)/@(photo.FileName)"
                          alt="Photo @photo.Num"
-                         class="w-full h-full object-cover block transition-transform duration-700 ease-out group-hover:scale-[1.01]"
-                         loading="lazy"
-                         onerror="this.src='/images/places/@(Model.PlaceId)/@(photo.FileName)';" />
+                         class="w-full h-full object-cover block transition-transform duration-700 ease-out group-hover:scale-[1.01]" />
 
                     <div class="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-colors duration-300 pointer-events-none"></div>
 
