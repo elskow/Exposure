@@ -3,6 +3,9 @@
     <PropertyGroup>
         <TargetFramework>net9.0</TargetFramework>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <!-- Copy views for runtime discovery -->
+        <CopyRazorGenerateFilesToPublishDirectory>true</CopyRazorGenerateFilesToPublishDirectory>
+        <PreserveCompilationContext>true</PreserveCompilationContext>
     </PropertyGroup>
 
     <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -19,11 +22,6 @@
         <TieredPGO>true</TieredPGO>
         <ReadyToRun>true</ReadyToRun>
         <InvariantGlobalization>false</InvariantGlobalization>
-        <!-- IL Trimming for smaller binary -->
-        <PublishTrimmed>true</PublishTrimmed>
-        <TrimMode>partial</TrimMode>
-        <!-- Exclude dev-only packages from publish -->
-        <IsTrimmable>true</IsTrimmable>
     </PropertyGroup>
 
 <ItemGroup>
@@ -56,8 +54,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <!-- Development only - exclude from publish -->
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.9" Condition="'$(Configuration)' == 'Debug'" />
+        <!-- Razor runtime compilation -->
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.9" />
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0" Condition="'$(Configuration)' == 'Debug'">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>

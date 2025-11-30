@@ -34,11 +34,7 @@ module Program =
             // Don't use NoGC region
 
         let mvcBuilder = builder.Services.AddControllersWithViews()
-
-#if DEBUG
-        if builder.Environment.IsDevelopment() then
-            mvcBuilder.AddRazorRuntimeCompilation() |> ignore
-#endif
+        mvcBuilder.AddRazorRuntimeCompilation() |> ignore
 
         builder.Services.AddRazorPages()
 

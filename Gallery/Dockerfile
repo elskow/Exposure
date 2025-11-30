@@ -23,7 +23,7 @@ WORKDIR /src
 
 # Copy and restore first (cached layer)
 COPY ["Gallery/Gallery.fsproj", "Gallery/"]
-RUN dotnet restore "Gallery/Gallery.fsproj" --runtime linux-musl-x64
+RUN dotnet restore "Gallery/Gallery.fsproj"
 
 # Copy source and build
 COPY . .
@@ -34,22 +34,32 @@ COPY --from=assets-build /src/Gallery/wwwroot/css/site.compiled.css ./wwwroot/cs
 COPY --from=assets-build /src/Gallery/wwwroot/js/site.min.js ./wwwroot/js/
 
 RUN dotnet publish "./Gallery.fsproj" -c $BUILD_CONFIGURATION -o /app/publish \
-    --runtime linux-musl-x64 \
     --no-restore
 
 FROM base AS final
 WORKDIR /app
 
+# Create user and data directory before copying files
 RUN addgroup -g 1000 appgroup && \
-    adduser -u 1000 -G appgroup -D appuser
+    adduser -u 1000 -G appgroup -D appuser && \
+    mkdir -p /app/data && \
+    chown -R appuser:appgroup /app
 
-COPY --from=publish /app/publish .
+# Copy with ownership in one layer
+COPY --from=publish --chown=appuser:appgroup /app/publish .
 
-RUN chown -R appuser:appgroup /app
 USER appuser
 
+# Production optimizations
 ENV ASPNETCORE_ENVIRONMENT=Production
 ENV DOTNET_EnableDiagnostics=0
 ENV DOTNET_gcServer=0
+ENV DOTNET_TieredPGO=1
+ENV DOTNET_TC_QuickJitForLoops=1
+ENV DOTNET_ReadyToRun=1
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
 ENTRYPOINT ["dotnet", "Gallery.dll"]
