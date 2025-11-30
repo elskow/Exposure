@@ -7,6 +7,9 @@ riderModule.iml
 # Tailwind CSS compiled output
 Gallery/wwwroot/css/site.compiled.css
 
+# Minified JS
+Gallery/wwwroot/js/site.min.js
+
 # Node modules
 Gallery/node_modules/
 Gallery/package-lock.json

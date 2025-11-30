@@ -35,8 +35,10 @@ module Program =
 
         let mvcBuilder = builder.Services.AddControllersWithViews()
 
+#if DEBUG
         if builder.Environment.IsDevelopment() then
             mvcBuilder.AddRazorRuntimeCompilation() |> ignore
+#endif
 
         builder.Services.AddRazorPages()
 

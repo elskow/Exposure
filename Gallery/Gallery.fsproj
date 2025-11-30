@@ -19,13 +19,11 @@
         <TieredPGO>true</TieredPGO>
         <ReadyToRun>true</ReadyToRun>
         <InvariantGlobalization>false</InvariantGlobalization>
-        <!-- Single file deployment -->
-        <PublishSingleFile>true</PublishSingleFile>
-        <SelfContained>true</SelfContained>
-        <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
         <!-- IL Trimming for smaller binary -->
         <PublishTrimmed>true</PublishTrimmed>
         <TrimMode>partial</TrimMode>
+        <!-- Exclude dev-only packages from publish -->
+        <IsTrimmable>true</IsTrimmable>
     </PropertyGroup>
 
 <ItemGroup>
@@ -58,12 +56,14 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.9" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
-        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+        <!-- Development only - exclude from publish -->
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="9.0.9" Condition="'$(Configuration)' == 'Debug'" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0" Condition="'$(Configuration)' == 'Debug'">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
+        <!-- Production packages -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="9.0.0" />
         <PackageReference Include="nClam" Version="9.0.0" />
         <PackageReference Include="Otp.NET" Version="1.4.0" />

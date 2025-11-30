@@ -1,11 +1,10 @@
 namespace Gallery.Services
 
 open System
-open System.Collections.Generic
 open System.Globalization
 open System.Linq
-open System.Runtime.CompilerServices
 open System.Threading
+open System.Threading.Tasks
 open Microsoft.EntityFrameworkCore
 open Microsoft.Extensions.Logging
 open Gallery.Data
@@ -40,85 +39,46 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             DisplayText = generateDisplayText startDate endDate
         }
 
-    let toPlaceDetailPage (place: Place) =
-        let tripDates = buildTripDates place.StartDate place.EndDate
-        let photos =
-            place.Photos
-                .OrderBy(fun ph -> ph.PhotoNum)
-                .Select(fun ph -> {
-                    Num = ph.PhotoNum
-                    Slug = ph.Slug
-                    FileName = ph.FileName
-                    IsFavorite = ph.IsFavorite
-                })
-            |> Seq.toList
-
-        {
-            PlaceId = place.Id
-            PlaceSlug = place.Slug
-            Name = place.Name
-            Location = place.Location
-            Country = place.Country
-            TotalPhotos = place.Photos.Count
-            Favorites = place.Favorites
-            TripDates = tripDates
-            Photos = photos
-        }
-
-    let getFavoritePhoto (photos: ResizeArray<Photo>) =
-        if photos.Count = 0 then
-            None, None
-        else
-            let favorite = photos |> Seq.tryFind (fun ph -> ph.IsFavorite)
-            match favorite with
-            | Some photo -> Some photo.PhotoNum, Some photo.FileName
-            | None ->
-                let first = photos |> Seq.minBy (fun ph -> ph.PhotoNum)
-                Some first.PhotoNum, Some first.FileName
-
-    let mapToPlaceSummary (p: Place) =
-        let tripDates = buildTripDates p.StartDate p.EndDate
-        let favoritePhotoNum, favoritePhotoFileName = getFavoritePhoto p.Photos
-        {
-            Id = p.Id
-            Slug = p.Slug
-            Name = p.Name
-            Location = p.Location
-            Country = p.Country
-            Photos = p.Photos.Count
-            TripDates = tripDates
-            FavoritePhotoNum = favoritePhotoNum
-            FavoritePhotoFileName = favoritePhotoFileName
-        }
-
-    /// Streams places asynchronously for better memory efficiency with large datasets
-    member _.GetAllPlacesStreamingAsync() =
+    /// Gets all places - uses Include for related data, maps efficiently in memory
+    member _.GetAllPlacesAsync() =
         task {
-            let result = ResizeArray<PlaceSummary>()
-            let asyncEnum =
+            let! places =
                 context.Places
                     .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
                     .OrderByDescending(fun p -> p.CreatedAt)
-                    .AsAsyncEnumerable()
+                    .ToListAsync()
 
-            let enumerator = asyncEnum.GetAsyncEnumerator()
-            try
-                let mutable hasMore = true
-                while hasMore do
-                    let! moveNext = enumerator.MoveNextAsync().AsTask()
-                    if moveNext then
-                        result.Add(mapToPlaceSummary enumerator.Current)
-                    else
-                        hasMore <- false
-            finally
-                enumerator.DisposeAsync().AsTask().Wait()
+            let result =
+                places
+                |> Seq.map (fun p ->
+                    let tripDates = buildTripDates p.StartDate p.EndDate
+                    let favoritePhotoNum, favoritePhotoFileName =
+                        if p.Photos.Count = 0 then
+                            None, None
+                        else
+                            let favorite = p.Photos |> Seq.tryFind (fun ph -> ph.IsFavorite)
+                            match favorite with
+                            | Some photo -> Some photo.PhotoNum, Some photo.FileName
+                            | None ->
+                                let first = p.Photos |> Seq.minBy (fun ph -> ph.PhotoNum)
+                                Some first.PhotoNum, Some first.FileName
+                    {
+                        Id = p.Id
+                        Slug = p.Slug
+                        Name = p.Name
+                        Location = p.Location
+                        Country = p.Country
+                        Photos = p.Photos.Count
+                        TripDates = tripDates
+                        FavoritePhotoNum = favoritePhotoNum
+                        FavoritePhotoFileName = favoritePhotoFileName
+                    })
+                |> List.ofSeq
 
-            logger.LogDebug("Streamed {Count} places from database", result.Count)
-            return result |> List.ofSeq
+            logger.LogDebug("Fetched {Count} places from database", result.Length)
+            return result
         }
-
-    member this.GetAllPlacesAsync() = this.GetAllPlacesStreamingAsync()
 
     member _.GetPlaceByIdAsync(id: int) =
         task {
@@ -131,7 +91,23 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             if isNull place then
                 return None
             else
-                return Some(toPlaceDetailPage place)
+                let tripDates = buildTripDates place.StartDate place.EndDate
+                let photos =
+                    place.Photos
+                    |> Seq.sortBy (fun ph -> ph.PhotoNum)
+                    |> Seq.map (fun ph -> { Num = ph.PhotoNum; Slug = ph.Slug; FileName = ph.FileName; IsFavorite = ph.IsFavorite })
+                    |> List.ofSeq
+                return Some {
+                    PlaceId = place.Id
+                    PlaceSlug = place.Slug
+                    Name = place.Name
+                    Location = place.Location
+                    Country = place.Country
+                    TotalPhotos = place.Photos.Count
+                    Favorites = place.Favorites
+                    TripDates = tripDates
+                    Photos = photos
+                }
         }
 
     member _.GetPlaceBySlugAsync(slug: string) =
@@ -145,7 +121,23 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             if isNull place then
                 return None
             else
-                return Some(toPlaceDetailPage place)
+                let tripDates = buildTripDates place.StartDate place.EndDate
+                let photos =
+                    place.Photos
+                    |> Seq.sortBy (fun ph -> ph.PhotoNum)
+                    |> Seq.map (fun ph -> { Num = ph.PhotoNum; Slug = ph.Slug; FileName = ph.FileName; IsFavorite = ph.IsFavorite })
+                    |> List.ofSeq
+                return Some {
+                    PlaceId = place.Id
+                    PlaceSlug = place.Slug
+                    Name = place.Name
+                    Location = place.Location
+                    Country = place.Country
+                    TotalPhotos = place.Photos.Count
+                    Favorites = place.Favorites
+                    TripDates = tripDates
+                    Photos = photos
+                }
         }
 
     member _.CreatePlaceAsync(name: string, location: string, country: string, startDate: string, endDate: string option) =

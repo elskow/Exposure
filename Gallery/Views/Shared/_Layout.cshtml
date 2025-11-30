@@ -29,6 +29,10 @@ var currentYear = ToRoman(DateTime.Now.Year);
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"]</title>
 
+    <!-- Preload critical fonts -->
+    <link rel="preload" href="~/fonts/lora/lora-italic-400.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="~/fonts/dm-mono/dm-mono-400.ttf" as="font" type="font/ttf" crossorigin />
+
     <link rel="stylesheet" href="~/css/fonts.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true" />
 
@@ -67,7 +71,11 @@ var currentYear = ToRoman(DateTime.Now.Year);
     @RenderBody()
 </main>
 
-<script src="~/js/site.js" asp-append-version="true"></script>
+@{
+    var isDevelopment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development";
+    var jsFile = isDevelopment ? "~/js/site.js" : "~/js/site.min.js";
+}
+<script src="@jsFile" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
