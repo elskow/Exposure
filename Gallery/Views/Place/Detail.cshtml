@@ -203,9 +203,9 @@
             <span class="text-gray-500 text-[10px] uppercase tracking-widest font-mono" aria-label="Location details">@Model.Location, @Model.Country</span>
         </div>
         <div class="flex flex-col gap-1 text-right">
-            <div class="flex gap-2 justify-end text-black text-[10px] font-mono" aria-label="Photo counter">
+            <div class="flex gap-2 items-center justify-end text-black text-[10px] font-mono" aria-label="Photo counter">
                 <span aria-label="Current photo">@Model.PhotoNum.ToString("D2")</span>
-                <span class="text-gray-400" aria-hidden="true">▶</span>
+                <svg class="w-2 h-2 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
                 <span class="text-gray-400" aria-label="Total photos">@Model.TotalPhotos</span>
             </div>
             <span class="text-gray-400 text-[10px] uppercase tracking-widest font-mono" aria-label="Photo ID">@Model.UniqueId</span>

@@ -32,7 +32,9 @@ ViewData["Title"] = Model.Name + " - Photo Gallery";
 
                     @if (photo.IsFavorite)
                     {
-                    <div class="absolute top-2 right-2 bg-black/60 text-white px-1.5 py-0.5 text-[8px] font-mono uppercase tracking-wider rounded backdrop-blur-sm">★</div>
+                    <div class="absolute top-2 right-2 bg-black/60 text-white px-1.5 py-0.5 rounded backdrop-blur-sm flex items-center justify-center">
+                        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-label="Favorite"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                    </div>
                     }
                 </div>
 
