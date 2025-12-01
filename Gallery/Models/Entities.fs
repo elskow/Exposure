@@ -39,7 +39,6 @@ type Place() =
 
     member val UpdatedAt = DateTime.UtcNow with get, set
 
-    // Navigation property
     member val Photos : ResizeArray<Photo> = ResizeArray<Photo>() with get, set
 
 and [<AllowNullLiteral>]
@@ -66,7 +65,6 @@ and [<AllowNullLiteral>]
 
     member val CreatedAt = DateTime.UtcNow with get, set
 
-    // Navigation property
     [<ForeignKey("PlaceId")>]
     member val Place : Place = null with get, set
 

@@ -39,7 +39,6 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             DisplayText = generateDisplayText startDate endDate
         }
 
-    /// Gets all places - uses Include for related data, maps efficiently in memory
     member _.GetAllPlacesAsync() =
         task {
             let! places =

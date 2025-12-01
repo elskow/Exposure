@@ -5,6 +5,7 @@ open System.Security.Claims
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Authentication
 open Microsoft.AspNetCore.Authentication.Cookies
+open Microsoft.AspNetCore.Authentication.OpenIdConnect
 open Microsoft.AspNetCore.Authorization
 open Microsoft.AspNetCore.Mvc
 open Microsoft.Extensions.Configuration
@@ -77,7 +78,13 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
         if this.User.Identity.IsAuthenticated then
             this.RedirectToAction("Index") :> IActionResult
         else
-            this.View() :> IActionResult
+            let authMode = configuration.["Authentication:Mode"]
+            if authMode = "OIDC" then
+                let properties = AuthenticationProperties()
+                properties.RedirectUri <- if String.IsNullOrEmpty(returnUrl) then "/admin" else returnUrl
+                this.Challenge(properties, OpenIdConnectDefaults.AuthenticationScheme) :> IActionResult
+            else
+                this.View() :> IActionResult
 
     [<Route("/admin/login")>]
     [<HttpPost>]
@@ -260,7 +267,6 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
     [<ValidateAntiForgeryToken>]
     member this.ReorderPhotos([<FromForm>] placeId: int, [<FromForm>] order: int[]) =
         task {
-            // Handle null or empty order array
             let orderArray = if isNull (box order) then [||] else order
             
             match inputValidation.ValidateId(placeId, "Place ID") with
@@ -370,5 +376,5 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
     member this.Logout() =
         task {
             do! this.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme)
-            return this.RedirectToAction("Login") :> IActionResult
+            return this.Redirect("/admin/login") :> IActionResult
         }

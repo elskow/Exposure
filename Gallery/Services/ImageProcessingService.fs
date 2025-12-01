@@ -84,19 +84,16 @@ type ImageProcessingService(logger: ILogger<ImageProcessingService>) =
                 if not (File.Exists(originalPath)) then
                     return Error "Original file not found"
                 else
-                    // Load image once, then process all sizes in parallel
                     use! stream = File.OpenRead(originalPath) |> Task.FromResult
                     use image = Image.Load(stream)
 
                     logger.LogDebug("Loaded image {Path} ({Width}x{Height}) for thumbnail generation",
                         originalPath, image.Width, image.Height)
 
-                    // Generate all thumbnails in parallel using cloned images
                     let! results =
                         thumbnailSizes
                         |> Array.map (fun size ->
                             task {
-                                // Clone per task to allow parallel processing
                                 use cloned = image.Clone(fun _ -> ())
                                 return! this.GenerateSingleThumbnail(cloned, baseFilename, outputDirectory, size)
                             })

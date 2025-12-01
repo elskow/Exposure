@@ -2,7 +2,6 @@ namespace Gallery.Models
 
 open System
 
-// Represents trip date information
 type TripDates = {
     StartDate: string
     EndDate: string option
@@ -10,7 +9,6 @@ type TripDates = {
     DisplayText: string
 }
 
-// Represents a single Place on the Home Page
 type PlaceSummary = {
     Id: int
     Slug: string
@@ -23,7 +21,6 @@ type PlaceSummary = {
     FavoritePhotoFileName: string option
 }
 
-// Represents a single photo on the Place Detail page
 type PhotoDetail = {
     Num: int
     Slug: string
@@ -31,7 +28,6 @@ type PhotoDetail = {
     IsFavorite: bool
 }
 
-// Represents the data needed for the Place Detail Page
 type PlaceDetailPage = {
     PlaceId: int
     PlaceSlug: string

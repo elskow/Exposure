@@ -12,6 +12,7 @@ open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open Microsoft.Extensions.Logging
 open Microsoft.AspNetCore.Authentication.Cookies
+open Microsoft.AspNetCore.DataProtection
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.ResponseCompression
 open Microsoft.EntityFrameworkCore
@@ -28,16 +29,10 @@ module Program =
     let main args =
         let builder = WebApplication.CreateBuilder(args)
 
-        // Add environment variables with custom prefix for easier Docker/K8s configuration
-        // e.g., GALLERY__Authentication__Mode, GALLERY__Authentication__Local__Username
-        builder.Configuration
-            .AddEnvironmentVariables("GALLERY__")
-            |> ignore
+        builder.Configuration.AddEnvironmentVariables("GALLERY__") |> ignore
 
-        // Configure more aggressive GC for lower memory
         if not (builder.Environment.IsDevelopment()) then
             GCSettings.LargeObjectHeapCompactionMode <- GCLargeObjectHeapCompactionMode.CompactOnce
-            // Don't use NoGC region
 
         let mvcBuilder = builder.Services.AddControllersWithViews()
         mvcBuilder.AddRazorRuntimeCompilation() |> ignore
@@ -64,7 +59,13 @@ module Program =
 
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
 
-        // DbContext pooling for better memory efficiency
+        let keysDirectory = "/app/data/keys"
+        Directory.CreateDirectory(keysDirectory) |> ignore
+        builder.Services.AddDataProtection()
+            .SetApplicationName("Gallery")
+            .PersistKeysToFileSystem(DirectoryInfo(keysDirectory))
+            |> ignore
+
         builder.Services.AddDbContextPool<GalleryDbContext>(
             (fun options ->
                 options.UseSqlite(connectionString) |> ignore
@@ -95,8 +96,8 @@ module Program =
                     options.LogoutPath <- "/admin/logout"
                     options.AccessDeniedPath <- "/admin/login"
                     options.Cookie.HttpOnly <- true
-                    options.Cookie.SecurePolicy <- CookieSecurePolicy.Always
-                    options.Cookie.SameSite <- SameSiteMode.Strict
+                    options.Cookie.SecurePolicy <- CookieSecurePolicy.SameAsRequest
+                    options.Cookie.SameSite <- SameSiteMode.Lax
                 )
                 .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, fun options ->
                     options.Authority <- builder.Configuration.["Authentication:OIDC:Authority"]
@@ -105,10 +106,28 @@ module Program =
                     options.ResponseType <- OpenIdConnectResponseType.Code
                     options.SaveTokens <- true
                     options.GetClaimsFromUserInfoEndpoint <- true
-
+                    options.CallbackPath <- "/signin-oidc"
+                    options.SignedOutCallbackPath <- "/signout-callback-oidc"
+                    options.SignedOutRedirectUri <- "/admin/login"
+                    options.CorrelationCookie.SameSite <- SameSiteMode.Lax
+                    options.CorrelationCookie.SecurePolicy <- CookieSecurePolicy.SameAsRequest
+                    options.NonceCookie.SameSite <- SameSiteMode.Lax
+                    options.NonceCookie.SecurePolicy <- CookieSecurePolicy.SameAsRequest
+                    options.RequireHttpsMetadata <- false
+                    options.Scope.Clear()
+                    options.Scope.Add("openid")
                     let scopes = builder.Configuration.["Authentication:OIDC:Scopes"]
                     if not (String.IsNullOrEmpty(scopes)) then
-                        scopes.Split(' ') |> Array.iter (fun scope -> options.Scope.Add(scope))
+                        scopes.Split(' ') |> Array.iter (fun scope -> 
+                            if scope <> "openid" then options.Scope.Add(scope))
+                    options.TokenValidationParameters.ValidateIssuer <- true
+                    options.TokenValidationParameters.ValidateAudience <- true
+                    options.Events <- OpenIdConnectEvents(
+                        OnRedirectToIdentityProviderForSignOut = fun context ->
+                            context.HandleResponse()
+                            context.HttpContext.Response.Redirect("/admin/login")
+                            Threading.Tasks.Task.CompletedTask
+                    )
                 ) |> ignore
         else
             builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -124,8 +143,6 @@ module Program =
         builder.Services.AddAuthorization()
 
         let app = builder.Build()
-
-        // No custom middleware needed - GC settings in project file handle memory management
 
         task {
             use scope = app.Services.CreateScope()
@@ -158,7 +175,6 @@ module Program =
                     | Some _ -> ()
         } |> fun t -> t.Wait()
 
-        // Force GC and wait for finalizers
         GC.Collect(2, GCCollectionMode.Aggressive, true, true)
         GC.WaitForPendingFinalizers()
         GC.Collect()
@@ -170,9 +186,8 @@ module Program =
 
         app.UseStatusCodePagesWithReExecute("/404") |> ignore
 
-        app.UseHttpsRedirection()
-
         if not (builder.Environment.IsDevelopment()) then
+            app.UseHttpsRedirection() |> ignore
             app.UseResponseCompression() |> ignore
 
         app.UseSecurityHeaders() |> ignore

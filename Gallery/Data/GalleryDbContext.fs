@@ -54,7 +54,6 @@ type GalleryDbContext(options: DbContextOptions<GalleryDbContext>) =
             .IsUnique()
             |> ignore
 
-        // Index for favorite photo queries
         modelBuilder.Entity<Photo>()
             .HasIndex("PlaceId", "IsFavorite")
             |> ignore

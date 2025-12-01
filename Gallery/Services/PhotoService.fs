@@ -12,14 +12,13 @@ open Microsoft.Extensions.Logging
 open Gallery.Data
 open Gallery.Models
 
-/// Result type for parallel file processing - struct to avoid heap allocation
 [<Struct; NoComparison>]
 type internal FileProcessingResult = {
     OriginalFile: IFormFile
     FileName: string
     FilePath: string
     Success: bool
-    Error: string voption  // Use ValueOption for struct compatibility
+    Error: string voption
 }
 
 type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNetCore.Hosting.IWebHostEnvironment, fileValidation: FileValidationService, pathValidation: PathValidationService, malwareScanning: MalwareScanningService, slugGenerator: SlugGeneratorService, imageProcessing: ImageProcessingService, logger: ILogger<PhotoService>) =
@@ -44,7 +43,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
         | Ok path -> path
         | Error msg -> failwith $"Path validation failed: {msg}"
 
-    /// Process a single file: copy to disk and generate thumbnails (I/O bound, can run in parallel)
     member private this.ProcessFileAsync(file: IFormFile, photosDir: string) =
         task {
             let extension = Path.GetExtension(file.FileName)
@@ -54,15 +52,12 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             let filePath = Path.Combine(photosDir, fileName)
 
             try
-                // Copy file to disk
                 use stream = new FileStream(filePath, FileMode.Create)
                 do! file.CopyToAsync(stream)
 
-                // Generate thumbnails
                 let! thumbnailResult = imageProcessing.GenerateThumbnailsAsync(filePath, fileName, photosDir)
                 match thumbnailResult with
                 | Error msg ->
-                    // Cleanup on thumbnail failure
                     try
                         if File.Exists(filePath) then File.Delete(filePath)
                         let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
@@ -74,7 +69,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                 | Ok _ ->
                     return { OriginalFile = file; FileName = fileName; FilePath = filePath; Success = true; Error = ValueNone }
             with ex ->
-                // Cleanup on any failure
                 try
                     if File.Exists(filePath) then File.Delete(filePath)
                     let! _ = imageProcessing.DeleteThumbnailsAsync(fileName, photosDir)
@@ -110,7 +104,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                         else
                             let photosDir = getPhotoDirectory(placeId)
 
-                            // Get current max photo number
                             let! currentMaxNum =
                                 context.Photos
                                     .Where(fun p -> p.PlaceId = placeId)
@@ -119,8 +112,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                             let startPhotoNum = if currentMaxNum.HasValue then currentMaxNum.Value + 1 else 1
 
-                            // PARALLEL PHASE: Process all files concurrently (I/O bound)
-                            // Limit concurrency to avoid memory issues with large uploads
                             let validFiles = files |> List.filter (fun f -> f.Length > 0L)
                             let maxConcurrency = Math.Min(Environment.ProcessorCount, 4)
                             let semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency)
@@ -141,7 +132,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
 
                             semaphore.Dispose()
 
-                            // SEQUENTIAL PHASE: Save to database (prevents race conditions)
                             let mutable uploadedCount = 0
                             let mutable lastError = ValueNone
                             let mutable photoNum = startPhotoNum
@@ -168,7 +158,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                         logger.LogInformation("Saved photo {PhotoNum} for placeId {PlaceId}: {FileName}", photo.PhotoNum, placeId, result.FileName)
                                     with dbEx ->
                                         logger.LogError(dbEx, "Database save failed for {FileName}, cleaning up", result.FileName)
-                                        // Cleanup file on DB failure
                                         try
                                             if File.Exists(result.FilePath) then File.Delete(result.FilePath)
                                             let! _ = imageProcessing.DeleteThumbnailsAsync(result.FileName, photosDir)
@@ -217,7 +206,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     context.Photos.Remove(photo) |> ignore
                     let! _ = context.SaveChangesAsync()
 
-                    // Bulk update remaining photos - single SQL UPDATE instead of N individual updates
                     let! updated =
                         context.Photos
                             .Where(fun p -> p.PlaceId = placeId && p.PhotoNum > photoNum)
@@ -245,8 +233,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                     logger.LogWarning("Reorder failed: photo count mismatch for placeId {PlaceId}. Expected {Expected}, got {Actual}", placeId, photoCount, newOrder.Length)
                     return false
                 else
-                    // Use bulk updates - two passes but with ExecuteUpdateAsync
-                    // First pass: offset all to temporary range
                     for (newNum, oldNum) in newOrder |> List.mapi (fun i oldNum -> (i + 1, oldNum)) do
                         let! _ =
                             context.Photos
@@ -255,7 +241,6 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
                                     setters.SetProperty((fun p -> p.PhotoNum), 10000 + newNum))
                         ()
 
-                    // Second pass: remove offset
                     let! _ =
                         context.Photos
                             .Where(fun p -> p.PlaceId = placeId && p.PhotoNum >= 10000)
@@ -311,9 +296,7 @@ type PhotoService(context: GalleryDbContext, webHostEnvironment: Microsoft.AspNe
             let! _ = uploadLock.WaitAsync()
 
             try
-                // Use bulk update for both operations - more efficient than loading entity
                 if isFavorite then
-                    // Clear existing favorites and set new one in single transaction
                     let! cleared =
                         context.Photos
                             .Where(fun p -> p.PlaceId = placeId && p.IsFavorite)
