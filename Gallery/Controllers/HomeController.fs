@@ -10,7 +10,6 @@ type HomeController(logger: ILogger<HomeController>, placeService: PlaceService)
     inherit Controller()
 
     [<Route("")>]
-    [<ResponseCache(Duration = 30, Location = ResponseCacheLocation.Any)>]
     member this.Index () =
         task {
             let! places = placeService.GetAllPlacesAsync()
