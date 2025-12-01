@@ -59,7 +59,11 @@ module Program =
 
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
 
-        let keysDirectory = "/app/data/keys"
+        let keysDirectory =
+            if builder.Environment.IsDevelopment() then
+                Path.Combine(builder.Environment.ContentRootPath, "data", "keys")
+            else
+                "/app/data/keys"
         Directory.CreateDirectory(keysDirectory) |> ignore
         builder.Services.AddDataProtection()
             .SetApplicationName("Gallery")

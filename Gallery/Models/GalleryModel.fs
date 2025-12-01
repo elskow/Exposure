@@ -17,6 +17,7 @@ type PlaceSummary = {
     Country: string
     Photos: int
     TripDates: TripDates
+    SortOrder: int
     FavoritePhotoNum: int option
     FavoritePhotoFileName: string option
 }

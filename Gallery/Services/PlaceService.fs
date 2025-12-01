@@ -45,7 +45,8 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                 context.Places
                     .AsNoTracking()
                     .Include(fun p -> p.Photos :> obj)
-                    .OrderByDescending(fun p -> p.CreatedAt)
+                    .OrderBy(fun p -> p.SortOrder)
+                    .ThenByDescending(fun p -> p.CreatedAt)
                     .ToListAsync()
 
             let result =
@@ -70,6 +71,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                         Country = p.Country
                         Photos = p.Photos.Count
                         TripDates = tripDates
+                        SortOrder = p.SortOrder
                         FavoritePhotoNum = favoritePhotoNum
                         FavoritePhotoFileName = favoritePhotoFileName
                     })
@@ -144,6 +146,12 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
             let! _ = createPlaceLock.WaitAsync()
 
             try
+                let! maxSortOrder = 
+                    context.Places
+                        .Select(fun p -> p.SortOrder :> obj)
+                        .MaxAsync(fun p -> p :?> Nullable<int>)
+                let newSortOrder = if maxSortOrder.HasValue then maxSortOrder.Value + 1 else 0
+
                 let place = Place()
 
                 let slugExists (slug: string) =
@@ -159,6 +167,7 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
                     | Some date when not (String.IsNullOrWhiteSpace(date)) -> date
                     | _ -> null
                 place.Favorites <- 0
+                place.SortOrder <- newSortOrder
                 place.CreatedAt <- DateTime.UtcNow
                 place.UpdatedAt <- DateTime.UtcNow
 
@@ -230,4 +239,20 @@ type PlaceService(context: GalleryDbContext, slugGenerator: SlugGeneratorService
         task {
             let! count = context.Places.CountAsync()
             return count
+        }
+
+    member _.ReorderPlacesAsync(orderedIds: int array) =
+        task {
+            for i in 0 .. orderedIds.Length - 1 do
+                let placeId = orderedIds.[i]
+                let sortOrder = i
+                do!
+                    context.Places
+                        .Where(fun p -> p.Id = placeId)
+                        .ExecuteUpdateAsync(fun setters ->
+                            setters.SetProperty((fun p -> p.SortOrder), sortOrder))
+                    |> Async.AwaitTask
+                    |> Async.Ignore
+
+            return ()
         }

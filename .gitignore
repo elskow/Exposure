@@ -27,3 +27,4 @@ Gallery/gallery.db-wal
 # Uploaded Photos
 Gallery/wwwroot/images/places/*/
 !Gallery/wwwroot/images/places/.gitkeep
+Gallery/Data

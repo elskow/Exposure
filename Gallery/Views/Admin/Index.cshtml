@@ -14,14 +14,21 @@
     <link rel="stylesheet" href="~/css/fonts.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/site.compiled.css" asp-append-version="true" />
     <style>
-        /* Changed default body font to Sans (Inter) */
         body { font-family: 'Inter', sans-serif; }
-        /* Helper for technical data */
         .font-mono { font-family: 'DM Mono', monospace; }
         ::-webkit-scrollbar { display: none; }
+        .place-row { cursor: grab; }
+        .place-row:active { cursor: grabbing; }
+        .place-row.dragging { opacity: 0.5; }
+        .drag-handle { cursor: grab; opacity: 0.3; transition: opacity 0.2s; }
+        .place-row:hover .drag-handle { opacity: 0.6; }
     </style>
 </head>
 <body class="bg-white text-[#111] min-h-screen p-6 md:p-12 selection:bg-black selection:text-white antialiased">
+
+    <form id="reorderForm" style="display: none;">
+        @Html.AntiForgeryToken()
+    </form>
 
     <div class="max-w-4xl mx-auto">
 
@@ -36,6 +43,17 @@
         </div>
 
         <div class="flex items-center gap-6">
+            <div id="reorderActions" style="display: none;" class="flex gap-3">
+                <button type="button" onclick="cancelReorder()"
+                    class="px-4 py-2 text-[10px] uppercase tracking-widest font-mono text-gray-500 hover:text-gray-700 transition-colors">
+                    Cancel
+                </button>
+                <button type="button" onclick="savePlaceOrder()"
+                    class="px-4 py-2 bg-green-600 text-white text-[10px] uppercase tracking-widest font-mono hover:bg-green-700 transition-colors rounded shadow-sm">
+                    Save Order
+                </button>
+            </div>
+
             <a href="/admin/create" class="inline-flex items-center px-4 py-2 bg-black text-white text-[10px] uppercase tracking-widest font-mono hover:bg-gray-800 transition-colors rounded shadow-sm">
                 + New Entry
             </a>
@@ -53,6 +71,7 @@
             <table class="w-full text-left border-collapse">
                 <thead>
                     <tr class="text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-100 font-medium">
+                        <th class="pb-3 font-medium w-8"></th>
                         <th class="pb-3 font-medium w-16">ID</th>
                         <th class="pb-3 font-medium">Name</th>
                         <th class="pb-3 font-medium hidden sm:table-cell">Location</th>
@@ -60,12 +79,22 @@
                         <th class="pb-3 font-medium text-right w-24">Action</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-50">
+                <tbody id="placesTable" class="divide-y divide-gray-50">
                     @if (Model.RecentPlaces.Any())
                     {
                         foreach (var place in Model.RecentPlaces)
                         {
-                            <tr class="group hover:bg-gray-50 transition-colors text-[13px]">
+                            <tr class="place-row group hover:bg-gray-50 transition-colors text-[13px]" 
+                                data-place-id="@place.Id" draggable="true"
+                                ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)"
+                                ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                                <td class="py-4 drag-handle text-gray-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+                                        <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+                                    </svg>
+                                </td>
+
                                 <td class="py-4 text-gray-300 group-hover:text-gray-500 font-mono text-[11px]">
                                     @place.Id.ToString("D2")
                                 </td>
@@ -93,7 +122,7 @@
                     else
                     {
                         <tr>
-                            <td colspan="5" class="py-12 text-center text-gray-400 text-sm">
+                            <td colspan="6" class="py-12 text-center text-gray-400 text-sm">
                                 No entries found.
                             </td>
                         </tr>
@@ -102,6 +131,92 @@
             </table>
         </div>
     </div>
+
+    <script>
+        let draggedRow = null;
+        let hasReordered = false;
+        let originalOrder = [];
+
+        document.addEventListener('DOMContentLoaded', function() {
+            originalOrder = Array.from(document.querySelectorAll('.place-row')).map(el => el.dataset.placeId);
+        });
+
+        function handleDragStart(e) {
+            draggedRow = e.target.closest('.place-row');
+            draggedRow.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            if (draggedRow) {
+                draggedRow.classList.remove('dragging');
+                draggedRow = null;
+            }
+            if (hasReordered) {
+                document.getElementById('reorderActions').style.display = 'flex';
+            }
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            const targetRow = e.target.closest('.place-row');
+            if (draggedRow && targetRow && draggedRow !== targetRow) {
+                const tbody = document.getElementById('placesTable');
+                const allRows = Array.from(tbody.querySelectorAll('.place-row'));
+                const draggedIndex = allRows.indexOf(draggedRow);
+                const targetIndex = allRows.indexOf(targetRow);
+
+                if (draggedIndex < targetIndex) {
+                    targetRow.parentNode.insertBefore(draggedRow, targetRow.nextSibling);
+                } else {
+                    targetRow.parentNode.insertBefore(draggedRow, targetRow);
+                }
+                hasReordered = true;
+            }
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+        }
+
+        function cancelReorder() {
+            location.reload();
+        }
+
+        async function savePlaceOrder() {
+            const placeRows = Array.from(document.querySelectorAll('.place-row'));
+            const newOrder = placeRows.map(el => parseInt(el.dataset.placeId));
+
+            try {
+                const formData = new FormData();
+                newOrder.forEach((id, index) => {
+                    formData.append(`order[${index}]`, id);
+                });
+
+                const token = document.querySelector('input[name="__RequestVerificationToken"]').value;
+                formData.append('__RequestVerificationToken', token);
+
+                const response = await fetch('/admin/places/reorder', {
+                    method: 'POST',
+                    body: formData,
+                    cache: 'no-store'
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    hasReordered = false;
+                    document.getElementById('reorderActions').style.display = 'none';
+                    window.location.href = window.location.pathname + '?t=' + Date.now();
+                } else {
+                    alert('Failed to save order: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Reorder error:', error);
+                alert('Failed to save order. Please try again.');
+            }
+        }
+    </script>
 
 </body>
 </html>

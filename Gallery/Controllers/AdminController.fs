@@ -27,6 +27,7 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             TripDates = placeDetail.TripDates
             FavoritePhotoNum = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.Num)
             FavoritePhotoFileName = placeDetail.Photos |> List.tryFind (fun p -> p.IsFavorite) |> Option.map (fun p -> p.FileName)
+            SortOrder = 0
         }
 
     [<Route("/admin")>]
@@ -45,6 +46,27 @@ type AdminController(placeService: PlaceService, photoService: PhotoService, aut
             }
 
             return this.View(model) :> IActionResult
+        }
+
+    [<Route("/admin/places/reorder")>]
+    [<HttpPost>]
+    [<Authorize>]
+    [<ValidateAntiForgeryToken>]
+    member this.ReorderPlaces([<FromForm>] order: int[]) =
+        task {
+            let orderArray = if isNull (box order) then [||] else order
+
+            if orderArray.Length = 0 then
+                return this.BadRequest({| success = false; message = "No order provided" |}) :> IActionResult
+            else
+                let orderValidations = orderArray |> Array.map (fun o -> inputValidation.ValidateId(o, "Order value"))
+                let invalidOrders = orderValidations |> Array.choose (function Error msg -> Some msg | Ok _ -> None)
+
+                if invalidOrders.Length > 0 then
+                    return this.BadRequest({| success = false; message = invalidOrders.[0] |}) :> IActionResult
+                else
+                    do! placeService.ReorderPlacesAsync(orderArray)
+                    return this.Json({| success = true; message = "Places reordered successfully" |}) :> IActionResult
         }
 
     [<Route("/admin/create")>]

@@ -35,6 +35,8 @@ type Place() =
 
     member val Favorites = 0 with get, set
 
+    member val SortOrder = 0 with get, set
+
     member val CreatedAt = DateTime.UtcNow with get, set
 
     member val UpdatedAt = DateTime.UtcNow with get, set
