@@ -51,12 +51,6 @@ module Program =
             options.Level <- System.IO.Compression.CompressionLevel.Optimal
         ) |> ignore
 
-        builder.Services.AddResponseCaching() |> ignore
-
-        builder.Services.AddOutputCache(fun options ->
-            options.AddBasePolicy(fun builder -> builder.Expire(TimeSpan.FromMinutes(1.0)) |> ignore)
-        ) |> ignore
-
         let connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
 
         let keysDirectory =
@@ -195,10 +189,6 @@ module Program =
             app.UseResponseCompression() |> ignore
 
         app.UseSecurityHeaders() |> ignore
-
-        app.UseResponseCaching() |> ignore
-
-        app.UseOutputCache() |> ignore
 
         let staticFileOptions = StaticFileOptions()
         staticFileOptions.OnPrepareResponse <- fun ctx ->
