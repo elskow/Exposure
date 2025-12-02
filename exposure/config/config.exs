@@ -12,13 +12,15 @@ config :exposure,
   generators: [timestamp_type: :utc_datetime]
 
 # Authentication configuration
-config :exposure, :authentication,
-  mode: :local,
-  local: %{
-    username: "admin",
-    password: "admin123",
-    require_totp: false
-  }
+# In development, uses a single default admin.
+# In production, configure via ADMIN_USERS environment variable.
+# See runtime.exs for production configuration.
+#
+# Format for multiple admins (list of maps):
+#   [%{username: "admin", password: "secret"}, %{username: "editor", password: "secret2"}]
+config :exposure, :admin_users, [
+  %{username: "admin", password: "changeme_in_production"}
+]
 
 # File upload configuration
 config :exposure, :file_upload,

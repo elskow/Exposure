@@ -23,15 +23,46 @@ end
 config :exposure, ExposureWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-# Authentication configuration from environment variables
-if admin_username = System.get_env("ADMIN_USERNAME") do
-  config :exposure, :authentication,
-    mode: :local,
-    local: %{
-      username: admin_username,
-      password: System.get_env("ADMIN_PASSWORD") || "admin123",
-      require_totp: System.get_env("REQUIRE_TOTP") == "true"
-    }
+# Admin users configuration from environment variables
+# Format: "username1:password1,username2:password2"
+# Example: ADMIN_USERS="admin:secretpass,editor:editorpass"
+if admin_users_env = System.get_env("ADMIN_USERS") do
+  admin_users =
+    admin_users_env
+    |> String.split(",", trim: true)
+    |> Enum.map(fn user_str ->
+      case String.split(user_str, ":", parts: 2) do
+        [username, password] when username != "" and password != "" ->
+          %{username: String.trim(username), password: String.trim(password)}
+
+        _ ->
+          raise """
+          Invalid ADMIN_USERS format: #{user_str}
+          Expected format: "username:password"
+          """
+      end
+    end)
+
+  if admin_users == [] do
+    raise "ADMIN_USERS is set but contains no valid users"
+  end
+
+  config :exposure, :admin_users, admin_users
+end
+
+# In production, require at least one admin user
+if config_env() == :prod do
+  unless System.get_env("ADMIN_USERS") do
+    raise """
+    Environment variable ADMIN_USERS is missing.
+    Please configure at least one admin user.
+
+    Format: "username:password" or "user1:pass1,user2:pass2" for multiple admins
+
+    Example:
+      export ADMIN_USERS="admin:your-secure-password-here"
+    """
+  end
 end
 
 # Malware scanning configuration from environment variables

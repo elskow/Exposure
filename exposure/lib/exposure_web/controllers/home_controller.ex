@@ -4,12 +4,10 @@ defmodule ExposureWeb.HomeController do
   alias Exposure.Gallery
 
   def index(conn, _params) do
-    places = Gallery.list_places()
+    places = Gallery.list_places_with_stats()
 
     place_summaries =
       Enum.map(places, fn place ->
-        favorite_photo = Gallery.get_favorite_photo(place)
-
         %{
           id: place.id,
           country_slug: place.country_slug,
@@ -18,11 +16,11 @@ defmodule ExposureWeb.HomeController do
           name: place.name,
           location: place.location,
           country: place.country,
-          photos: length(place.photos),
+          photos: place.photo_count,
           trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
           sort_order: place.sort_order,
-          favorite_photo_num: favorite_photo && favorite_photo.photo_num,
-          favorite_photo_file_name: favorite_photo && favorite_photo.file_name
+          favorite_photo_num: place.favorite_photo_num,
+          favorite_photo_file_name: place.favorite_photo_file_name
         }
       end)
 

@@ -2,7 +2,7 @@ defmodule ExposureWeb.AdminController do
   use ExposureWeb, :controller
 
   alias Exposure.Gallery
-  alias Exposure.Services.{Authentication, InputValidation, Photo}
+  alias Exposure.Services.{Authentication, InputValidation, Photo, RateLimiter}
 
   plug(:require_auth when action not in [:login, :do_login])
 
@@ -23,24 +23,22 @@ defmodule ExposureWeb.AdminController do
   # =============================================================================
 
   def index(conn, _params) do
-    places = Gallery.list_places()
-    total_photos = Enum.sum(Enum.map(places, fn p -> length(p.photos) end))
+    places = Gallery.list_places_with_stats()
+    total_photos = Enum.sum(Enum.map(places, fn p -> p.photo_count end))
     total_favorites = Gallery.total_favorites()
 
     place_summaries =
       Enum.map(places, fn place ->
-        favorite_photo = Gallery.get_favorite_photo(place)
-
         %{
           id: place.id,
           name: place.name,
           location: place.location,
           country: place.country,
-          photos: length(place.photos),
+          photos: place.photo_count,
           trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
           sort_order: place.sort_order,
-          favorite_photo_num: favorite_photo && favorite_photo.photo_num,
-          favorite_photo_file_name: favorite_photo && favorite_photo.file_name
+          favorite_photo_num: place.favorite_photo_num,
+          favorite_photo_file_name: place.favorite_photo_file_name
         }
       end)
 
@@ -71,18 +69,36 @@ defmodule ExposureWeb.AdminController do
   def do_login(conn, %{"username" => username, "password" => password} = params) do
     totp_code = Map.get(params, "totp_code")
 
-    with {:ok, _} <- InputValidation.validate_username(username),
-         {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
-      conn
-      |> configure_session(renew: true)
-      |> put_session(:admin_user_id, user.id)
-      |> put_session(:admin_username, user.username)
-      |> redirect(to: ~p"/admin")
-    else
-      {:error, msg} ->
+    # Check rate limit first
+    case RateLimiter.check_rate(username) do
+      {:error, seconds_remaining} ->
         conn
         |> put_root_layout(false)
-        |> render(:login, error: msg, username: username)
+        |> render(:login,
+          error: "Too many login attempts. Please try again in #{seconds_remaining} seconds.",
+          username: username
+        )
+
+      :ok ->
+        with {:ok, _} <- InputValidation.validate_username(username),
+             {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
+          # Clear rate limit on successful login
+          RateLimiter.clear(username)
+
+          conn
+          |> configure_session(renew: true)
+          |> put_session(:admin_user_id, user.id)
+          |> put_session(:admin_username, user.username)
+          |> redirect(to: ~p"/admin")
+        else
+          {:error, msg} ->
+            # Record failed attempt
+            RateLimiter.record_failure(username)
+
+            conn
+            |> put_root_layout(false)
+            |> render(:login, error: msg, username: username)
+        end
     end
   end
 

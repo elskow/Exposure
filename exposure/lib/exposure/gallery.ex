@@ -5,7 +5,7 @@ defmodule Exposure.Gallery do
 
   import Ecto.Query, warn: false
   alias Exposure.Repo
-  alias Exposure.Gallery.Place
+  alias Exposure.Gallery.{Place, Photo}
   alias Exposure.Services.SlugGenerator
   alias ExposureWeb.ViewHelpers
 
@@ -15,12 +15,73 @@ defmodule Exposure.Gallery do
 
   @doc """
   Returns all places ordered by sort_order and created_at.
+  Includes preloaded photos - use list_places_with_stats for lightweight listing.
   """
   def list_places do
     Place
     |> order_by([p], asc: p.sort_order, desc: p.inserted_at)
     |> preload(:photos)
     |> Repo.all()
+  end
+
+  @doc """
+  Returns all places with photo count and favorite photo info.
+  Uses optimized queries instead of preloading all photos.
+  """
+  def list_places_with_stats do
+    # Main query with photo count
+    places_with_counts =
+      from(p in Place,
+        left_join: ph in Photo,
+        on: ph.place_id == p.id,
+        group_by: p.id,
+        order_by: [asc: p.sort_order, desc: p.inserted_at],
+        select: {p, count(ph.id)}
+      )
+      |> Repo.all()
+
+    # Get favorite photos in one query
+    place_ids = Enum.map(places_with_counts, fn {place, _} -> place.id end)
+
+    favorite_photos =
+      from(ph in Photo,
+        where: ph.place_id in ^place_ids and ph.is_favorite == true,
+        select: {ph.place_id, %{photo_num: ph.photo_num, file_name: ph.file_name}}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    # Get first photos as fallback (for places without a favorite)
+    first_photos =
+      from(ph in Photo,
+        where: ph.place_id in ^place_ids,
+        distinct: ph.place_id,
+        order_by: [asc: ph.place_id, asc: ph.photo_num],
+        select: {ph.place_id, %{photo_num: ph.photo_num, file_name: ph.file_name}}
+      )
+      |> Repo.all()
+      |> Map.new()
+
+    # Combine results
+    Enum.map(places_with_counts, fn {place, photo_count} ->
+      favorite = Map.get(favorite_photos, place.id) || Map.get(first_photos, place.id)
+
+      %{
+        id: place.id,
+        country_slug: place.country_slug,
+        location_slug: place.location_slug,
+        name_slug: place.name_slug,
+        name: place.name,
+        location: place.location,
+        country: place.country,
+        start_date: place.start_date,
+        end_date: place.end_date,
+        sort_order: place.sort_order,
+        photo_count: photo_count,
+        favorite_photo_num: favorite && favorite.photo_num,
+        favorite_photo_file_name: favorite && favorite.file_name
+      }
+    end)
   end
 
   @doc """
@@ -104,7 +165,7 @@ defmodule Exposure.Gallery do
 
   @doc """
   Reorders places by the given list of ids.
-  Uses Ecto's update_all for safe parameterized queries.
+  Uses a single bulk UPDATE with CASE statement for efficiency.
   """
   def reorder_places(ordered_ids) when is_list(ordered_ids) do
     if ordered_ids == [] do
@@ -116,17 +177,35 @@ defmodule Exposure.Gallery do
           if is_integer(id), do: id, else: String.to_integer(id)
         end)
 
-      Repo.transaction(fn ->
+      now = DateTime.utc_now()
+
+      # Build CASE clause for bulk update: CASE id WHEN 1 THEN 0 WHEN 2 THEN 1 ... END
+      {case_fragments, params} =
         validated_ids
         |> Enum.with_index()
-        |> Enum.each(fn {id, order} ->
-          Place
-          |> where([p], p.id == ^id)
-          |> Repo.update_all(set: [sort_order: order, updated_at: DateTime.utc_now()])
+        |> Enum.reduce({[], []}, fn {id, order}, {fragments, params} ->
+          {["WHEN ? THEN ?" | fragments], [order, id | params]}
         end)
 
-        :reordered
-      end)
+      case_sql = "CASE id #{Enum.join(Enum.reverse(case_fragments), " ")} END"
+
+      # Build the full query with placeholders
+      id_placeholders = Enum.map_join(1..length(validated_ids), ", ", fn _ -> "?" end)
+
+      sql = """
+      UPDATE places
+      SET sort_order = #{case_sql},
+          updated_at = ?
+      WHERE id IN (#{id_placeholders})
+      """
+
+      # Parameters: [case params (reversed)..., now, ids...]
+      all_params = Enum.reverse(params) ++ [now | validated_ids]
+
+      case Repo.query(sql, all_params) do
+        {:ok, _} -> {:ok, :reordered}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

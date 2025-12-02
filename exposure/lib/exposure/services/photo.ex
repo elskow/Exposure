@@ -75,7 +75,7 @@ defmodule Exposure.Services.Photo do
 
   @doc """
   Reorders photos for a place.
-  Uses Ecto queries for safe parameterized updates.
+  Uses a single bulk UPDATE with CASE statement for efficiency.
   """
   def reorder_photos(place_id, new_order) when is_list(new_order) do
     photo_count =
@@ -99,24 +99,38 @@ defmodule Exposure.Services.Photo do
 
       now = DateTime.utc_now()
 
-      Repo.transaction(fn ->
-        # First pass: offset all photo_nums to avoid conflicts (add 10000)
+      # Build CASE clause: CASE photo_num WHEN old1 THEN new1 WHEN old2 THEN new2 ... END
+      {case_fragments, params} =
         validated_order
         |> Enum.with_index(1)
-        |> Enum.each(fn {old_num, new_num} ->
-          Photo
-          |> where([p], p.place_id == ^place_id and p.photo_num == ^old_num)
-          |> Repo.update_all(set: [photo_num: 10_000 + new_num, updated_at: now])
+        |> Enum.reduce({[], []}, fn {old_num, new_num}, {fragments, params} ->
+          {["WHEN ? THEN ?" | fragments], [new_num, old_num | params]}
         end)
 
-        # Second pass: normalize (subtract 10000)
-        Photo
-        |> where([p], p.place_id == ^place_id and p.photo_num >= 10_000)
-        |> Repo.update_all(inc: [photo_num: -10_000])
-      end)
+      case_sql = "CASE photo_num #{Enum.join(Enum.reverse(case_fragments), " ")} END"
 
-      Logger.info("Reordered photos for placeId #{place_id}")
-      true
+      # Build placeholders for IN clause
+      in_placeholders = Enum.map_join(1..length(validated_order), ", ", fn _ -> "?" end)
+
+      sql = """
+      UPDATE photos
+      SET photo_num = #{case_sql},
+          updated_at = ?
+      WHERE place_id = ? AND photo_num IN (#{in_placeholders})
+      """
+
+      # Parameters: [case params (reversed)..., now, place_id, photo_nums...]
+      all_params = Enum.reverse(params) ++ [now, place_id | validated_order]
+
+      case Repo.query(sql, all_params) do
+        {:ok, _} ->
+          Logger.info("Reordered photos for placeId #{place_id}")
+          true
+
+        {:error, reason} ->
+          Logger.error("Failed to reorder photos for placeId #{place_id}: #{inspect(reason)}")
+          false
+      end
     end
   end
 

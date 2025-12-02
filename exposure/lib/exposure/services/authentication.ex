@@ -10,6 +10,11 @@ defmodule Exposure.Services.Authentication do
 
   @generic_auth_error "Invalid credentials"
 
+  # OWASP recommends 600,000 iterations for PBKDF2-HMAC-SHA256 (as of 2023)
+  # https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+  @pbkdf2_iterations 600_000
+  @legacy_iterations 10_000
+
   @doc """
   Generates a random TOTP secret.
   """
@@ -52,26 +57,54 @@ defmodule Exposure.Services.Authentication do
   end
 
   @doc """
-  Hashes a password using Argon2 (or PBKDF2 as fallback).
+  Hashes a password using PBKDF2-HMAC-SHA256.
+  Uses 600,000 iterations as per OWASP recommendations.
   """
   def hash_password(password) when is_binary(password) do
-    # Using PBKDF2 for compatibility
     salt = :crypto.strong_rand_bytes(16)
-    hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 10_000, 32)
-    Base.encode64(salt <> hash)
+    hash = :crypto.pbkdf2_hmac(:sha256, password, salt, @pbkdf2_iterations, 32)
+    # Prefix with version byte to support future algorithm changes
+    Base.encode64(<<1>> <> salt <> hash)
   end
 
   @doc """
   Verifies a password against a stored hash.
+  Supports both new (600K iterations) and legacy (10K iterations) hashes.
   """
   def verify_password(password, hashed_password)
       when is_binary(password) and is_binary(hashed_password) do
     try do
-      <<salt::binary-16, stored_hash::binary-32>> = Base.decode64!(hashed_password)
-      computed_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, 10_000, 32)
-      secure_compare(stored_hash, computed_hash)
+      decoded = Base.decode64!(hashed_password)
+
+      case decoded do
+        # New format with version byte
+        <<1, salt::binary-16, stored_hash::binary-32>> ->
+          computed_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, @pbkdf2_iterations, 32)
+          secure_compare(stored_hash, computed_hash)
+
+        # Legacy format without version byte (48 bytes: 16 salt + 32 hash)
+        <<salt::binary-16, stored_hash::binary-32>> ->
+          computed_hash = :crypto.pbkdf2_hmac(:sha256, password, salt, @legacy_iterations, 32)
+          secure_compare(stored_hash, computed_hash)
+
+        _ ->
+          false
+      end
     rescue
       _ -> false
+    end
+  end
+
+  @doc """
+  Checks if a password hash needs to be upgraded to the new iteration count.
+  """
+  def needs_rehash?(hashed_password) when is_binary(hashed_password) do
+    try do
+      decoded = Base.decode64!(hashed_password)
+      # If it doesn't start with version byte 1, it needs rehashing
+      not match?(<<1, _::binary>>, decoded)
+    rescue
+      _ -> true
     end
   end
 
@@ -154,6 +187,8 @@ defmodule Exposure.Services.Authentication do
          :ok <- verify_user_password(user, password),
          :ok <- verify_totp_if_required(user, totp_code) do
       update_last_login(user)
+      # Upgrade password hash if using legacy iteration count
+      maybe_upgrade_password_hash(user, password)
       {:ok, user}
     else
       :user_not_found ->
@@ -205,6 +240,14 @@ defmodule Exposure.Services.Authentication do
     user
     |> AdminUser.changeset(%{last_login_at: DateTime.utc_now()})
     |> Repo.update()
+  end
+
+  defp maybe_upgrade_password_hash(user, password) do
+    if needs_rehash?(user.password_hash) do
+      user
+      |> AdminUser.changeset(%{password_hash: hash_password(password)})
+      |> Repo.update()
+    end
   end
 
   defp secure_compare(a, b) when byte_size(a) == byte_size(b) do

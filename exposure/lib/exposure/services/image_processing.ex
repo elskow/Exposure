@@ -29,7 +29,7 @@ defmodule Exposure.Services.ImageProcessing do
     if not File.exists?(original_path) do
       {:error, "Original file not found"}
     else
-      case Image.open(original_path) do
+      case Image.open(original_path, access: :sequential) do
         {:ok, image} ->
           {width, height, _} = Image.shape(image)
 
