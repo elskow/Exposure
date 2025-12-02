@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <.live_title default="Places - Travel Gallery">
+      {assigns[:page_title]}
+    </.live_title>
+
+    <!-- Preload critical fonts -->
+    <link rel="preload" href="/fonts/lora/lora-italic-400.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/fonts/dm-mono/dm-mono-400.ttf" as="font" type="font/ttf" crossorigin />
+
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+
+    <style>
+      :root {
+        --font-serif: 'Lora', serif;
+        --font-mono: 'DM Mono', monospace;
+      }
+
+      body {
+        font-family: var(--font-serif);
+        font-size: 1.05rem;
+        line-height: 1.7;
+        letter-spacing: 0.01em;
+      }
+
+      .font-mono {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+      }
+
+      h1, h2, h3, .italic {
+        font-style: italic;
+      }
+
+      html { scroll-behavior: smooth; }
+    </style>
+  </head>
+  <body class="bg-[#FCFCFA] text-[#222] antialiased selection:bg-gray-900 selection:text-white flex flex-col min-h-screen">
+    <main role="main" class="flex-grow w-full">
+      {@inner_content}
+    </main>
+  </body>
+</html>

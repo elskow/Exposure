@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard</title>
+
+  <!-- Preload critical fonts -->
+  <link rel="preload" href="/fonts/inter/inter-400.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="preload" href="/fonts/dm-mono/dm-mono-400.ttf" as="font" type="font/ttf" crossorigin />
+
+  <link rel="stylesheet" href="/assets/css/app.css" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .font-mono { font-family: 'DM Mono', monospace; }
+    ::-webkit-scrollbar { display: none; }
+    .place-row { cursor: grab; }
+    .place-row:active { cursor: grabbing; }
+    .place-row.dragging { opacity: 0.5; }
+    .drag-handle { cursor: grab; opacity: 0.3; transition: opacity 0.2s; }
+    .place-row:hover .drag-handle { opacity: 0.6; }
+  </style>
+</head>
+<body class="bg-white text-[#111] min-h-screen p-6 md:p-12 selection:bg-black selection:text-white antialiased">
+
+  <form id="reorderForm" style="display: none;">
+    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+  </form>
+
+  <div class="max-w-4xl mx-auto">
+
+    <header class="flex justify-between items-end border-b border-gray-100 pb-6 mb-8">
+      <div>
+        <h1 class="text-2xl font-medium tracking-tight text-black">Dashboard</h1>
+
+        <div class="flex gap-4 mt-2 text-[10px] text-gray-400 uppercase tracking-widest font-mono">
+          <span><%= @total_places %> Places</span>
+          <span><%= @total_photos %> Photos</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-6">
+        <div id="reorderActions" style="display: none;" class="flex gap-3">
+          <button type="button" onclick="cancelReorder()"
+                  class="px-4 py-2 text-[10px] uppercase tracking-widest font-mono text-gray-500 hover:text-gray-700 transition-colors">
+            Cancel
+          </button>
+          <button type="button" onclick="savePlaceOrder()"
+                  class="px-4 py-2 bg-green-600 text-white text-[10px] uppercase tracking-widest font-mono hover:bg-green-700 transition-colors rounded shadow-sm">
+            Save Order
+          </button>
+        </div>
+
+        <a href={~p"/admin/create"} class="inline-flex items-center px-4 py-2 bg-black text-white text-[10px] uppercase tracking-widest font-mono hover:bg-gray-800 transition-colors rounded shadow-sm">
+          + New Entry
+        </a>
+
+        <form action={~p"/admin/logout"} method="post" class="inline">
+          <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+          <button type="submit" class="text-[10px] uppercase tracking-widest font-mono text-red-400 hover:text-red-600 transition-colors">
+            Logout
+          </button>
+        </form>
+      </div>
+    </header>
+
+    <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse">
+        <thead>
+          <tr class="text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-100 font-medium">
+            <th class="pb-3 font-medium w-8"></th>
+            <th class="pb-3 font-medium w-16">ID</th>
+            <th class="pb-3 font-medium">Name</th>
+            <th class="pb-3 font-medium hidden sm:table-cell">Location</th>
+            <th class="pb-3 font-medium text-right">Date</th>
+            <th class="pb-3 font-medium text-right w-24">Action</th>
+          </tr>
+        </thead>
+        <tbody id="placesTable" class="divide-y divide-gray-50">
+          <%= if @places != [] do %>
+            <%= for place <- @places do %>
+              <tr class="place-row group hover:bg-gray-50 transition-colors text-[13px]"
+                  data-place-id={place.id}
+                  draggable="true"
+                  ondragstart="handleDragStart(event)"
+                  ondragend="handleDragEnd(event)"
+                  ondragover="handleDragOver(event)"
+                  ondrop="handleDrop(event)">
+                <td class="py-4 drag-handle text-gray-300">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+                    <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+                  </svg>
+                </td>
+
+                <td class="py-4 text-gray-300 group-hover:text-gray-500 font-mono text-[11px]">
+                  <%= String.pad_leading(to_string(place.id), 2, "0") %>
+                </td>
+
+                <td class="py-4 font-medium text-gray-900">
+                  <%= place.name %>
+                </td>
+
+                <td class="py-4 text-gray-500 hidden sm:table-cell">
+                  <%= place.location %>, <%= place.country %>
+                </td>
+
+                <td class="py-4 text-right text-gray-400 font-mono text-[11px]">
+                  <%= place.trip_dates %>
+                </td>
+
+                <td class="py-4 text-right">
+                  <a href={~p"/admin/edit/#{place.id}"} class="text-black text-[11px] font-medium hover:text-gray-500 underline underline-offset-4 decoration-gray-200 hover:decoration-gray-400 transition-all">
+                    Edit
+                  </a>
+                </td>
+              </tr>
+            <% end %>
+          <% else %>
+            <tr>
+              <td colspan="6" class="py-12 text-center text-gray-400 text-sm">
+                No entries found.
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let draggedRow = null;
+    let hasReordered = false;
+    let originalOrder = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+      originalOrder = Array.from(document.querySelectorAll('.place-row')).map(el => el.dataset.placeId);
+    });
+
+    function handleDragStart(e) {
+      draggedRow = e.target.closest('.place-row');
+      draggedRow.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function handleDragEnd(e) {
+      if (draggedRow) {
+        draggedRow.classList.remove('dragging');
+        draggedRow = null;
+      }
+      if (hasReordered) {
+        document.getElementById('reorderActions').style.display = 'flex';
+      }
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      const targetRow = e.target.closest('.place-row');
+      if (draggedRow && targetRow && draggedRow !== targetRow) {
+        const tbody = document.getElementById('placesTable');
+        const allRows = Array.from(tbody.querySelectorAll('.place-row'));
+        const draggedIndex = allRows.indexOf(draggedRow);
+        const targetIndex = allRows.indexOf(targetRow);
+
+        if (draggedIndex < targetIndex) {
+          targetRow.parentNode.insertBefore(draggedRow, targetRow.nextSibling);
+        } else {
+          targetRow.parentNode.insertBefore(draggedRow, targetRow);
+        }
+        hasReordered = true;
+      }
+    }
+
+    function handleDrop(e) {
+      e.preventDefault();
+    }
+
+    function cancelReorder() {
+      location.reload();
+    }
+
+    async function savePlaceOrder() {
+      const placeRows = Array.from(document.querySelectorAll('.place-row'));
+      const newOrder = placeRows.map(el => parseInt(el.dataset.placeId));
+
+      try {
+        const formData = new FormData();
+        newOrder.forEach((id, index) => {
+          formData.append(`order[${index}]`, id);
+        });
+
+        const token = document.querySelector('input[name="_csrf_token"]').value;
+        formData.append('_csrf_token', token);
+
+        const response = await fetch('/admin/places/reorder', {
+          method: 'POST',
+          body: formData,
+          cache: 'no-store'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          hasReordered = false;
+          document.getElementById('reorderActions').style.display = 'none';
+          window.location.href = window.location.pathname + '?t=' + Date.now();
+        } else {
+          alert('Failed to save order: ' + result.message);
+        }
+      } catch (error) {
+        console.error('Reorder error:', error);
+        alert('Failed to save order. Please try again.');
+      }
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Photo <%= @photo.photo_num %> - <%= @photo.place_name %></title>
+  <link rel="stylesheet" href="/assets/css/app.css" />
+  <style>
+    body { font-family: 'DM Mono', monospace; }
+    ::-webkit-scrollbar { display: none; }
+
+    /* Keyboard focus styles */
+    a:focus, button:focus {
+      outline: 2px solid #000;
+      outline-offset: 2px;
+    }
+
+    /* Progressive image loading */
+    .photo-container {
+      position: relative;
+      max-height: 75vh;
+      max-width: min(95vw, 85vw);
+      width: auto;
+      height: auto;
+    }
+    @media (min-width: 768px) {
+      .photo-container {
+        max-width: 85vw;
+      }
+    }
+    .photo-placeholder {
+      position: absolute;
+      inset: 0;
+      filter: blur(20px);
+      transform: scale(1.1);
+      transition: opacity 0.5s ease-out;
+      z-index: 1;
+    }
+    .photo-main {
+      position: relative;
+      z-index: 2;
+      opacity: 0;
+      transition: opacity 0.5s ease-out;
+    }
+    .photo-main.loaded {
+      opacity: 1;
+    }
+    .photo-placeholder.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .loading-spinner {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 3;
+      transition: opacity 0.3s ease-out;
+    }
+    .loading-spinner.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid #e5e5e5;
+      border-top-color: #111;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+
+    body.keyboard-user *:focus {
+      outline: 2px solid #000 !important;
+      outline-offset: 3px !important;
+    }
+  </style>
+
+  <%!-- Preload current image --%>
+  <link rel="preload" href={"/images/places/#{@photo.place_id}/#{@photo.file_name}"} as="image" />
+  <%= if @photo.next_photo_file_name do %>
+    <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{@photo.next_photo_file_name}"} as="image" />
+  <% end %>
+  <%= if @photo.prev_photo_file_name do %>
+    <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{@photo.prev_photo_file_name}"} as="image" />
+  <% end %>
+</head>
+<body class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden selection:bg-black selection:text-white" role="application" aria-label="Photo viewer">
+
+  <%!-- Screen reader announcements --%>
+  <div role="status" aria-live="polite" aria-atomic="true" class="sr-only" id="photo-announcement">
+    Photo <%= @photo.photo_num %> of <%= @photo.total_photos %> - <%= @photo.place_name %>, <%= @photo.location %>
+  </div>
+
+  <header class="flex justify-between items-center px-5 md:px-12 h-20 shrink-0 z-20" role="banner">
+    <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}"}
+       id="close-button"
+       class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
+       aria-label={"Close photo viewer and return to #{@photo.place_name} gallery"}
+       title="Close (ESC)">
+      <span class="text-[10px] font-mono tracking-[0.1em] uppercase pt-px" aria-hidden="true">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </span>
+    </a>
+
+    <nav class="flex gap-4 text-gray-500" aria-label="Photo navigation" role="navigation">
+      <%= if @photo.prev_photo do %>
+        <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}/#{@photo.prev_photo_slug}"}
+           id="prev-button"
+           class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
+           aria-label={"Previous photo (#{@photo.prev_photo} of #{@photo.total_photos})"}
+           title="Previous (Left Arrow)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+        </a>
+      <% else %>
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 text-gray-300 cursor-default"
+              aria-label="No previous photo available"
+              role="button"
+              aria-disabled="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+        </span>
+      <% end %>
+
+      <%= if @photo.next_photo do %>
+        <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}/#{@photo.next_photo_slug}"}
+           id="next-button"
+           class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:ring-2 focus:ring-black focus:ring-offset-2"
+           aria-label={"Next photo (#{@photo.next_photo} of #{@photo.total_photos})"}
+           title="Next (Right Arrow)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+      <% else %>
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 text-gray-300 cursor-default"
+              aria-label="No next photo available"
+              role="button"
+              aria-disabled="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </span>
+      <% end %>
+    </nav>
+  </header>
+
+  <main id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative w-full h-full overflow-hidden" role="main" tabindex="-1">
+    <%
+      name_without_ext = Path.rootname(@photo.file_name)
+      medium_file_name = "#{name_without_ext}-medium.webp"
+      # Calculate aspect ratio style if dimensions are available
+      aspect_style = if @photo.width && @photo.height do
+        "aspect-ratio: #{@photo.width} / #{@photo.height};"
+      else
+        ""
+      end
+    %>
+    <figure class="photo-container" style={aspect_style}>
+      <%!-- Loading spinner --%>
+      <div class="loading-spinner" id="loadingSpinner">
+        <div class="spinner"></div>
+      </div>
+
+      <%!-- Blurred placeholder (medium thumbnail) --%>
+      <img src={"/images/places/#{@photo.place_id}/#{medium_file_name}"}
+           alt=""
+           aria-hidden="true"
+           class="photo-placeholder max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
+           id="photoPlaceholder"
+           onerror="this.style.display='none';" />
+
+      <%!-- Full resolution image --%>
+      <img data-src={"/images/places/#{@photo.place_id}/#{@photo.file_name}"}
+           alt={"#{@photo.place_name} - Photo #{@photo.photo_num} of #{@photo.total_photos} taken in #{@photo.location}, #{@photo.country} during #{@photo.trip_dates}"}
+           class="photo-main max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
+           id="photoMain" />
+    </figure>
+  </main>
+
+  <footer class="flex justify-between items-end px-5 md:px-12 h-20 pb-8 shrink-0 z-20" role="contentinfo">
+    <div class="flex flex-col gap-1">
+      <span class="text-black text-[10px] uppercase tracking-widest font-mono font-medium" aria-label="Location name"><%= @photo.place_name %></span>
+      <span class="text-gray-500 text-[10px] uppercase tracking-widest font-mono" aria-label="Location details"><%= @photo.location %>, <%= @photo.country %></span>
+    </div>
+    <div class="flex flex-col gap-1 text-right">
+      <div class="flex gap-2 items-center justify-end text-black text-[10px] font-mono" aria-label="Photo counter">
+        <span aria-label="Current photo"><%= String.pad_leading(to_string(@photo.photo_num), 2, "0") %></span>
+        <svg class="w-2 h-2 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+        <span class="text-gray-400" aria-label="Total photos"><%= @photo.total_photos %></span>
+      </div>
+      <span class="text-gray-400 text-[10px] uppercase tracking-widest font-mono" aria-label="Photo ID"><%= @photo.unique_id %></span>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      'use strict';
+
+      var prevButton = document.getElementById('prev-button');
+      var nextButton = document.getElementById('next-button');
+      var closeButton = document.getElementById('close-button');
+      var announcement = document.getElementById('photo-announcement');
+
+      // Keyboard navigation handler
+      document.addEventListener('keydown', function(e) {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+          return;
+        }
+
+        switch(e.key) {
+          case 'ArrowLeft':
+          case 'Left':
+            e.preventDefault();
+            if (prevButton) {
+              announceNavigation('previous');
+              prevButton.click();
+            } else {
+              announceNavigation('first');
+            }
+            break;
+
+          case 'ArrowRight':
+          case 'Right':
+            e.preventDefault();
+            if (nextButton) {
+              announceNavigation('next');
+              nextButton.click();
+            } else {
+              announceNavigation('last');
+            }
+            break;
+
+          case 'Escape':
+          case 'Esc':
+            e.preventDefault();
+            announceNavigation('closing');
+            closeButton.click();
+            break;
+
+          case 'Home':
+            e.preventDefault();
+            announceNavigation('closing');
+            closeButton.click();
+            break;
+        }
+      });
+
+      function announceNavigation(direction) {
+        var photoNum = <%= @photo.photo_num %>;
+        var totalPhotos = <%= @photo.total_photos %>;
+        var placeName = '<%= String.replace(@photo.place_name, "'", "\\'") %>';
+
+        var message = '';
+        switch(direction) {
+          case 'previous':
+            message = 'Loading previous photo, ' + (photoNum - 1) + ' of ' + totalPhotos;
+            break;
+          case 'next':
+            message = 'Loading next photo, ' + (photoNum + 1) + ' of ' + totalPhotos;
+            break;
+          case 'first':
+            message = 'Already at first photo';
+            break;
+          case 'last':
+            message = 'Already at last photo';
+            break;
+          case 'closing':
+            message = 'Closing photo viewer, returning to ' + placeName + ' gallery';
+            break;
+        }
+
+        if (announcement && message) {
+          announcement.textContent = message;
+        }
+      }
+
+      // Preload adjacent images
+      function preloadAdjacentImages() {
+        <%= if @photo.prev_photo_file_name do %>
+        var prevImg = new Image();
+        prevImg.src = '/images/places/<%= @photo.place_id %>/<%= @photo.prev_photo_file_name %>';
+        <% end %>
+
+        <%= if @photo.next_photo_file_name do %>
+        var nextImg = new Image();
+        nextImg.src = '/images/places/<%= @photo.place_id %>/<%= @photo.next_photo_file_name %>';
+        <% end %>
+      }
+
+      // Progressive image loading
+      function loadFullImage() {
+        var mainImg = document.getElementById('photoMain');
+        var placeholder = document.getElementById('photoPlaceholder');
+        var spinner = document.getElementById('loadingSpinner');
+        var fullSrc = mainImg.dataset.src;
+
+        if (!fullSrc) return;
+
+        var loader = new Image();
+
+        loader.onload = function() {
+          mainImg.src = fullSrc;
+          mainImg.classList.add('loaded');
+
+          setTimeout(function() {
+            if (placeholder) placeholder.classList.add('hidden');
+            if (spinner) spinner.classList.add('hidden');
+          }, 100);
+        };
+
+        loader.onerror = function() {
+          if (spinner) spinner.classList.add('hidden');
+          if (placeholder) {
+            placeholder.classList.remove('photo-placeholder');
+            placeholder.style.filter = 'none';
+            placeholder.style.transform = 'none';
+          }
+        };
+
+        loader.src = fullSrc;
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          preloadAdjacentImages();
+          loadFullImage();
+        });
+      } else {
+        preloadAdjacentImages();
+        loadFullImage();
+      }
+
+      // Visual feedback for keyboard users
+      document.addEventListener('mousedown', function() {
+        document.body.classList.remove('keyboard-user');
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Tab') {
+          document.body.classList.add('keyboard-user');
+        }
+      });
+
+    })();
+  </script>
+
+</body>
+</html>

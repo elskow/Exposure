@@ -1,0 +1,166 @@
+<div class="max-w-xl mx-auto px-6 text-[#111] mt-12 md:mt-32 mb-24" role="main">
+
+  <header class="mb-12 mt-6">
+    <div class="mb-5 text-black opacity-70" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" stroke-width="0.8"/>
+        <circle cx="12" cy="10" r="3" fill="currentColor"/>
+      </svg>
+    </div>
+
+    <div class="max-w-xl space-y-3">
+      <p class="text-[15px] leading-relaxed text-gray-900 font-serif">
+        <span class="font-medium text-black italic">Places, frozen in time.</span> Every location tells a story through light and shadow. A collection of destinations where moments were captured, memories preserved, and the essence of each place immortalized through the lens.
+      </p>
+
+      <div class="text-[10px] text-gray-400 pt-1 flex flex-col gap-0.5 font-mono uppercase tracking-wide">
+        <span>Helmy Luqmanulhakim</span>
+        <span>Vol. MMXXV &mdash; Travel Archive</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="w-full" aria-label="Places index">
+    <table class="w-full text-left" role="table">
+      <thead role="rowgroup">
+        <tr class="text-[9px] text-gray-300 uppercase tracking-widest font-mono border-b border-transparent" role="row">
+          <th class="pb-2 w-8 font-normal" scope="col" aria-label="Place number">#</th>
+          <th class="pb-2 w-10 font-normal" scope="col" aria-label="Preview thumbnail">Prev</th>
+          <th class="pb-2 font-normal" scope="col" aria-label="Place details"></th>
+          <th class="pb-2 text-right font-normal hidden sm:table-cell" scope="col" aria-label="Number of photos">Photos</th>
+          <th class="pb-2 text-right font-normal pl-6 hidden sm:table-cell" scope="col" aria-label="Country name">Country</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50/60" role="rowgroup">
+        <%= for place <- @places do %>
+          <tr role="row" class="group hover:bg-gray-50 focus-within:bg-gray-50 transition-colors duration-200">
+            <td class="py-4 md:py-3 text-gray-300 text-[10px] align-middle font-mono" role="cell">
+              <span aria-label={"Place #{place.id}"}><%= String.pad_leading(to_string(place.id), 2, "0") %></span>
+            </td>
+
+            <td class="py-4 md:py-3 align-middle pr-3" role="cell">
+              <div class="w-7 h-7 bg-gray-100 overflow-hidden relative rounded-[1px] border border-black/5 lazy-placeholder">
+                <%= if place.favorite_photo_file_name do %>
+                  <% name_without_ext = Path.rootname(place.favorite_photo_file_name) %>
+                  <% thumb_file_name = "#{name_without_ext}-thumb.webp" %>
+                  <img data-src={"/images/places/#{place.id}/#{thumb_file_name}"}
+                       data-fallback={"/images/places/#{place.id}/#{place.favorite_photo_file_name}"}
+                       alt={"Preview of #{place.name}"}
+                       class="w-full h-full object-cover" />
+                <% else %>
+                  <div class="absolute inset-0 bg-gradient-to-tr from-gray-200 to-gray-300 opacity-60" aria-label="No preview available"></div>
+                <% end %>
+              </div>
+            </td>
+
+            <td class="py-4 md:py-3 align-middle" role="cell">
+              <a href={~p"/places/#{place.country_slug}/#{place.location_slug}/#{place.name_slug}"}
+                 class="flex flex-col justify-center focus:outline-2 focus:outline-offset-2 focus:outline-black rounded -mx-2 px-2 -my-2 py-2"
+                 aria-label={"View #{place.name} gallery - #{place.location}, #{place.country} - #{place.photos} photos"}>
+                <span class="text-[13px] text-gray-900 font-serif italic leading-none tracking-tight group-hover:text-black group-focus-within:text-black transition-colors">
+                  <%= place.name %>
+                </span>
+
+                <span class="text-[9px] text-gray-400 mt-1.5 leading-none font-mono tracking-wide uppercase">
+                  <%= place.location %>
+                </span>
+
+                <span class="sm:hidden text-[9px] text-gray-300 mt-1 leading-none font-mono tracking-wide uppercase">
+                  <%= place.country %>
+                </span>
+              </a>
+            </td>
+
+            <td class="py-3 text-right text-gray-400 text-[10px] align-middle font-mono hidden sm:table-cell" role="cell">
+              <span aria-label={"#{place.photos} photos"}><%= place.photos %></span>
+            </td>
+
+            <td class="py-3 text-right text-gray-400 text-[10px] align-middle pl-6 font-mono uppercase tracking-wide group-hover:text-gray-600 group-focus-within:text-gray-600 hidden sm:table-cell" role="cell">
+              <span aria-label={"Country: #{place.country}"}><%= place.country %></span>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </nav>
+
+  <%= if @places == [] do %>
+    <div class="text-center py-12 text-gray-400 text-sm font-serif italic">
+      <p>No places yet. Add some from the admin panel.</p>
+    </div>
+  <% end %>
+</div>
+
+<script>
+  // Keyboard navigation for places index
+  (function() {
+    'use strict';
+
+    const placeLinks = Array.from(document.querySelectorAll('table a[href*="places"]'));
+    let currentFocusIndex = -1;
+
+    document.addEventListener('keydown', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      if (placeLinks.length === 0) return;
+
+      switch(e.key) {
+        case 'ArrowDown':
+          if (currentFocusIndex < placeLinks.length - 1) {
+            e.preventDefault();
+            currentFocusIndex = currentFocusIndex === -1 ? 0 : currentFocusIndex + 1;
+            placeLinks[currentFocusIndex].focus();
+          }
+          break;
+
+        case 'ArrowUp':
+          if (currentFocusIndex > 0) {
+            e.preventDefault();
+            currentFocusIndex--;
+            placeLinks[currentFocusIndex].focus();
+          }
+          break;
+
+        case 'Home':
+          if (currentFocusIndex !== -1) {
+            e.preventDefault();
+            currentFocusIndex = 0;
+            placeLinks[0].focus();
+          }
+          break;
+
+        case 'End':
+          if (currentFocusIndex !== -1) {
+            e.preventDefault();
+            currentFocusIndex = placeLinks.length - 1;
+            placeLinks[currentFocusIndex].focus();
+          }
+          break;
+      }
+    });
+
+    placeLinks.forEach((link, index) => {
+      link.addEventListener('focus', function() {
+        currentFocusIndex = index;
+      });
+    });
+
+    document.addEventListener('focusin', function(e) {
+      if (!placeLinks.includes(e.target)) {
+        currentFocusIndex = -1;
+      }
+    });
+  })();
+</script>
+
+<style>
+  table a:focus {
+    outline: 2px solid #000;
+    outline-offset: 2px;
+  }
+  table tr {
+    cursor: default;
+  }
+</style>

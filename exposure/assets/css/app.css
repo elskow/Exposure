@@ -1,0 +1,288 @@
+/* See the Tailwind configuration guide for advanced usage
+   https://tailwindcss.com/docs/configuration */
+
+@import "tailwindcss";
+@source "../../lib/exposure_web/**/*.ex";
+@source "../../lib/exposure_web/**/*.heex";
+@source "../js";
+
+/* A Tailwind plugin that makes "hero-#{ICON}" classes available.
+   The heroicons installation itself is managed by your mix.exs */
+@plugin "../vendor/heroicons";
+
+/* Add variants based on LiveView classes */
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
+
+/* Make LiveView wrapper divs transparent for layout */
+[data-phx-session], [data-phx-teleported-src] { display: contents }
+
+/* ========================================
+   Self-hosted Google Fonts
+   ======================================== */
+
+/* Inter - Sans Serif */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/fonts/inter/inter-300.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/inter/inter-400.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/inter/inter-500.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/inter/inter-600.ttf') format('truetype');
+}
+
+/* DM Mono - Monospace */
+@font-face {
+    font-family: 'DM Mono';
+    font-style: normal;
+    font-weight: 300;
+    font-display: swap;
+    src: url('/fonts/dm-mono/dm-mono-300.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'DM Mono';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-mono/dm-mono-400.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'DM Mono';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/dm-mono/dm-mono-500.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'DM Mono';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-mono/dm-mono-italic-400.ttf') format('truetype');
+}
+
+/* DM Serif Display - Serif Display */
+@font-face {
+    font-family: 'DM Serif Display';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-serif-display/dm-serif-display-400.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'DM Serif Display';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/dm-serif-display/dm-serif-display-italic-400.ttf') format('truetype');
+}
+
+/* Lora - Serif */
+@font-face {
+    font-family: 'Lora';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/lora/lora-400.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Lora';
+    font-style: normal;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/lora/lora-500.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Lora';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/lora/lora-600.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Lora';
+    font-style: italic;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/lora/lora-italic-400.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'Lora';
+    font-style: italic;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/lora/lora-italic-500.ttf') format('truetype');
+}
+
+/* Reenie Beanie - Handwriting */
+@font-face {
+    font-family: 'Reenie Beanie';
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/reenie-beanie/reenie-beanie-400.ttf') format('truetype');
+}
+
+/* ========================================
+   Base Styles (matching F# Gallery)
+   ======================================== */
+
+:root {
+    --font-serif: 'Lora', serif;
+    --font-mono: 'DM Mono', monospace;
+    --font-sans: 'Inter', sans-serif;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+/* Hide scrollbars */
+::-webkit-scrollbar { display: none; }
+* {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Font utilities */
+.font-serif { font-family: var(--font-serif); }
+.font-mono { font-family: var(--font-mono); }
+.font-sans { font-family: var(--font-sans); }
+
+/* Enhanced Lazy Loading Styles */
+img.lazy-loading {
+    opacity: 0;
+    filter: blur(5px);
+    transform: scale(1.02);
+    transition: opacity 0.4s ease-out, filter 0.4s ease-out, transform 0.4s ease-out;
+}
+
+img.lazy-loaded {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+}
+
+/* Skeleton placeholder animation */
+.lazy-placeholder {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Screen reader only */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* Hide scrollbar utility */
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Progressive image loading */
+.photo-container {
+    position: relative;
+}
+.photo-placeholder {
+    position: absolute;
+    inset: 0;
+    filter: blur(20px);
+    transform: scale(1.1);
+    transition: opacity 0.5s ease-out;
+    z-index: 1;
+}
+.photo-main {
+    position: relative;
+    z-index: 2;
+    opacity: 0;
+    transition: opacity 0.5s ease-out;
+}
+.photo-main.loaded {
+    opacity: 1;
+}
+.photo-placeholder.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Loading spinner */
+.loading-spinner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 3;
+    transition: opacity 0.3s ease-out;
+}
+.loading-spinner.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid #e5e5e5;
+    border-top-color: #111;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Enhanced focus styles for keyboard users */
+body.keyboard-user *:focus {
+    outline: 2px solid #000 !important;
+    outline-offset: 3px !important;
+}
