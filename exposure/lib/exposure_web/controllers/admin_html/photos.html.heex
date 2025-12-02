@@ -55,9 +55,21 @@
       gap: 0.5rem;
     }
 
-    .drag-over {
-      border: 2px dashed #000;
-      background: #f9fafb;
+    .photo-item.drag-over {
+      transform: scale(0.95);
+      opacity: 0.7;
+    }
+    
+    .photo-item.dragging {
+      opacity: 0.3;
+    }
+    
+    .photo-item {
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    
+    .photo-item.dragging * {
+      pointer-events: none;
     }
   </style>
 </head>
@@ -125,9 +137,7 @@
               name_without_ext = Path.rootname(photo.file_name)
               small_file_name = "#{name_without_ext}-small.webp"
             %>
-            <div class="photo-item group" data-photo-num={photo.num} draggable="true"
-                 ondragstart="handlePhotoStart(event)"
-                 ondragend="handlePhotoEnd(event)">
+            <div class="photo-item group" data-photo-num={photo.num} draggable="true">
               <img src={"/images/places/#{@place.id}/#{small_file_name}"}
                    alt={"Photo #{photo.num}"}
                    loading="lazy"
@@ -279,30 +289,145 @@
     });
 
     // Drag and drop for photo reordering
-    let draggedElement = null;
+    let draggedPhotoNum = null;
     let hasReordered = false;
-    let originalOrder = [];
-
-    document.addEventListener('DOMContentLoaded', function() {
-      originalOrder = Array.from(document.querySelectorAll('.photo-item')).map(el => el.dataset.photoNum);
-    });
+    let dragGhost = null;
+    const enterCounters = new Map();
 
     function handlePhotoStart(e) {
-      draggedElement = e.target.closest('.photo-item');
+      draggedPhotoNum = this.dataset.photoNum;
       e.dataTransfer.effectAllowed = 'move';
-      draggedElement.style.opacity = '0.5';
+      e.dataTransfer.setData('text/plain', draggedPhotoNum);
+      
+      // Create ghost image
+      const img = this.querySelector('img');
+      if (img) {
+        dragGhost = img.cloneNode(true);
+        dragGhost.style.cssText = `
+          position: fixed;
+          pointer-events: none;
+          width: 120px;
+          height: 120px;
+          object-fit: cover;
+          border-radius: 8px;
+          opacity: 0.85;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+          z-index: 9999;
+          transform: rotate(3deg);
+        `;
+        document.body.appendChild(dragGhost);
+        
+        // Position ghost at cursor
+        dragGhost.style.left = (e.clientX - 60) + 'px';
+        dragGhost.style.top = (e.clientY - 60) + 'px';
+        
+        // Hide default drag image
+        const emptyImg = new Image();
+        emptyImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        e.dataTransfer.setDragImage(emptyImg, 0, 0);
+      }
+      
+      requestAnimationFrame(() => {
+        this.classList.add('dragging');
+      });
+    }
+    
+    function handlePhotoDrag(e) {
+      if (dragGhost && e.clientX > 0 && e.clientY > 0) {
+        dragGhost.style.left = (e.clientX - 60) + 'px';
+        dragGhost.style.top = (e.clientY - 60) + 'px';
+      }
+    }
+
+    function handlePhotoDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    }
+
+    function handlePhotoDragEnter(e) {
+      e.preventDefault();
+      if (!draggedPhotoNum || this.dataset.photoNum === draggedPhotoNum) return;
+      
+      // Increment enter counter for this element
+      const count = (enterCounters.get(this) || 0) + 1;
+      enterCounters.set(this, count);
+      
+      if (count === 1) {
+        this.classList.add('drag-over');
+      }
+    }
+
+    function handlePhotoDragLeave(e) {
+      if (!draggedPhotoNum || this.dataset.photoNum === draggedPhotoNum) return;
+      
+      // Decrement enter counter
+      const count = (enterCounters.get(this) || 1) - 1;
+      enterCounters.set(this, count);
+      
+      if (count <= 0) {
+        this.classList.remove('drag-over');
+        enterCounters.delete(this);
+      }
+    }
+
+    function handlePhotoDrop(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      enterCounters.delete(this);
+      
+      const droppedOnNum = this.dataset.photoNum;
+      if (!draggedPhotoNum || draggedPhotoNum === droppedOnNum) {
+        return;
+      }
+      
+      const grid = document.getElementById('photoGrid');
+      // Find elements by data attribute, not by reference
+      const draggedEl = grid.querySelector(`.photo-item[data-photo-num="${draggedPhotoNum}"]`);
+      const targetEl = this;
+      
+      if (!draggedEl || draggedEl === targetEl) {
+        return;
+      }
+      
+      // Get current positions
+      const items = Array.from(grid.children);
+      const dragIndex = items.indexOf(draggedEl);
+      const dropIndex = items.indexOf(targetEl);
+      
+      if (dragIndex === -1 || dropIndex === -1) {
+        return;
+      }
+      
+      // Perform the swap
+      if (dragIndex < dropIndex) {
+        grid.insertBefore(draggedEl, targetEl.nextSibling);
+      } else {
+        grid.insertBefore(draggedEl, targetEl);
+      }
+      
+      hasReordered = true;
     }
 
     function handlePhotoEnd(e) {
-      if (draggedElement) {
-        draggedElement.style.opacity = '1';
-        draggedElement = null;
+      // Remove ghost
+      if (dragGhost) {
+        dragGhost.remove();
+        dragGhost = null;
       }
+      
+      document.querySelectorAll('.photo-item').forEach(function(item) {
+        item.classList.remove('dragging');
+        item.classList.remove('drag-over');
+      });
+      enterCounters.clear();
 
       if (hasReordered) {
         document.getElementById('reorderActions').style.display = 'flex';
         document.getElementById('reorderHint').style.display = 'none';
       }
+      
+      draggedPhotoNum = null;
     }
 
     function cancelReorder() {
@@ -310,8 +435,16 @@
     }
 
     async function savePhotoOrder() {
-      const photoItems = Array.from(document.querySelectorAll('.photo-item'));
+      const photoItems = Array.from(document.querySelectorAll('.photo-item[data-photo-num]'));
       const newOrder = photoItems.map(el => parseInt(el.dataset.photoNum));
+      
+      // Validate no duplicates
+      const uniqueOrder = [...new Set(newOrder)];
+      if (uniqueOrder.length !== newOrder.length) {
+        console.error('Duplicate photo numbers detected:', newOrder);
+        alert('Error: Invalid order detected. Please reload and try again.');
+        return;
+      }
 
       try {
         const formData = new FormData();
@@ -343,27 +476,18 @@
       }
     }
 
-    // Add drag over handlers to photo items
+    // Initialize drag and drop handlers
     document.addEventListener('DOMContentLoaded', function() {
-      const photoItems = document.querySelectorAll('.photo-item');
-
-      photoItems.forEach(item => {
-        item.addEventListener('dragover', function(e) {
-          e.preventDefault();
-          if (draggedElement && draggedElement !== this) {
-            const grid = document.getElementById('photoGrid');
-            const allItems = Array.from(grid.children);
-            const draggedIndex = allItems.indexOf(draggedElement);
-            const targetIndex = allItems.indexOf(this);
-
-            if (draggedIndex < targetIndex) {
-              this.parentNode.insertBefore(draggedElement, this.nextSibling);
-            } else {
-              this.parentNode.insertBefore(draggedElement, this);
-            }
-            hasReordered = true;
-          }
-        });
+      const items = document.querySelectorAll('.photo-item');
+      
+      items.forEach(function(item) {
+        item.addEventListener('dragstart', handlePhotoStart, false);
+        item.addEventListener('drag', handlePhotoDrag, false);
+        item.addEventListener('dragenter', handlePhotoDragEnter, false);
+        item.addEventListener('dragover', handlePhotoDragOver, false);
+        item.addEventListener('dragleave', handlePhotoDragLeave, false);
+        item.addEventListener('drop', handlePhotoDrop, false);
+        item.addEventListener('dragend', handlePhotoEnd, false);
       });
     });
 

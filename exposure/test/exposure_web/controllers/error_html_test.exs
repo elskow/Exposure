@@ -4,8 +4,10 @@ defmodule ExposureWeb.ErrorHTMLTest do
   # Bring render_to_string/4 for testing custom views
   import Phoenix.Template, only: [render_to_string: 4]
 
-  test "renders 404.html" do
-    assert render_to_string(ExposureWeb.ErrorHTML, "404", "html", []) == "Not Found"
+  test "renders 404.html with custom template" do
+    result = render_to_string(ExposureWeb.ErrorHTML, "404", "html", [])
+    assert result =~ "this frame is unexposed"
+    assert result =~ "rewind?"
   end
 
   test "renders 500.html" do

@@ -5,6 +5,8 @@ defmodule Exposure.Services.SlugGenerator do
   """
 
   @max_slug_length 30
+  @random_slug_chars ~c"abcdefghijklmnopqrstuvwxyz0123456789"
+  @random_slug_length 8
 
   @doc """
   Generates a slug from text.
@@ -36,7 +38,31 @@ defmodule Exposure.Services.SlugGenerator do
     find_unique_slug(base_slug, exists_fn, 1)
   end
 
+  @doc """
+  Generates a random unique slug (8 alphanumeric characters).
+  Takes an exists_fn that returns true if the slug already exists.
+  """
+  def generate_random_unique(exists_fn, attempts \\ 0) do
+    if attempts > 100 do
+      raise "Failed to generate unique random slug after 100 attempts"
+    end
+
+    slug = generate_random_slug()
+
+    if exists_fn.(slug) do
+      generate_random_unique(exists_fn, attempts + 1)
+    else
+      slug
+    end
+  end
+
   # Private functions
+
+  defp generate_random_slug do
+    for _ <- 1..@random_slug_length, into: "" do
+      <<Enum.random(@random_slug_chars)>>
+    end
+  end
 
   defp find_unique_slug(base_slug, _exists_fn, attempt) when attempt > 100 do
     raise "Failed to generate unique slug after 100 attempts for: #{base_slug}"

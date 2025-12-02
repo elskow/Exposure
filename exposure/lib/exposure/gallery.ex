@@ -7,6 +7,7 @@ defmodule Exposure.Gallery do
   alias Exposure.Repo
   alias Exposure.Gallery.Place
   alias Exposure.Services.SlugGenerator
+  alias ExposureWeb.ViewHelpers
 
   # =============================================================================
   # Places
@@ -103,32 +104,29 @@ defmodule Exposure.Gallery do
 
   @doc """
   Reorders places by the given list of ids.
-  Uses a single batch UPDATE with CASE statement for efficiency.
+  Uses Ecto's update_all for safe parameterized queries.
   """
   def reorder_places(ordered_ids) when is_list(ordered_ids) do
     if ordered_ids == [] do
       {:ok, :no_changes}
     else
-      # Build CASE statement for batch update
-      case_clauses =
-        ordered_ids
+      # Validate all IDs are integers to prevent injection
+      validated_ids =
+        Enum.map(ordered_ids, fn id ->
+          if is_integer(id), do: id, else: String.to_integer(id)
+        end)
+
+      Repo.transaction(fn ->
+        validated_ids
         |> Enum.with_index()
-        |> Enum.map(fn {id, order} -> "WHEN #{id} THEN #{order}" end)
-        |> Enum.join(" ")
+        |> Enum.each(fn {id, order} ->
+          Place
+          |> where([p], p.id == ^id)
+          |> Repo.update_all(set: [sort_order: order, updated_at: DateTime.utc_now()])
+        end)
 
-      ids_list = Enum.join(ordered_ids, ", ")
-
-      sql = """
-      UPDATE places
-      SET sort_order = CASE id #{case_clauses} END,
-          updated_at = NOW()
-      WHERE id IN (#{ids_list})
-      """
-
-      case Repo.query(sql, []) do
-        {:ok, _result} -> {:ok, :reordered}
-        {:error, reason} -> {:error, reason}
-      end
+        :reordered
+      end)
     end
   end
 
@@ -143,79 +141,10 @@ defmodule Exposure.Gallery do
   end
 
   # =============================================================================
-  # Slug Generation
+  # View Helpers (delegated to ExposureWeb.ViewHelpers for backward compatibility)
   # =============================================================================
 
-  @slug_chars ~c"abcdefghijklmnopqrstuvwxyz0123456789"
-  @slug_length 8
-
-  @doc """
-  Generates a unique slug using the provided exists function.
-  """
-  def generate_unique_slug(exists_fn, attempts \\ 0) do
-    if attempts > 100 do
-      raise "Failed to generate unique slug after 100 attempts"
-    end
-
-    slug = generate_random_slug()
-
-    if exists_fn.(slug) do
-      generate_unique_slug(exists_fn, attempts + 1)
-    else
-      slug
-    end
-  end
-
-  defp generate_random_slug do
-    for _ <- 1..@slug_length, into: "" do
-      <<Enum.random(@slug_chars)>>
-    end
-  end
-
-  # =============================================================================
-  # View Helpers
-  # =============================================================================
-
-  @doc """
-  Formats a date string for display.
-  """
-  def format_date_for_display(iso_date) when is_binary(iso_date) do
-    case Date.from_iso8601(iso_date) do
-      {:ok, date} ->
-        Calendar.strftime(date, "%d %b, %Y")
-
-      {:error, _} ->
-        iso_date
-    end
-  end
-
-  def format_date_for_display(_), do: ""
-
-  @doc """
-  Generates trip dates display text.
-  """
-  def trip_dates_display(start_date, nil), do: format_date_for_display(start_date)
-  def trip_dates_display(start_date, ""), do: format_date_for_display(start_date)
-
-  def trip_dates_display(start_date, end_date) do
-    formatted_start = format_date_for_display(start_date)
-    formatted_end = format_date_for_display(end_date)
-
-    if formatted_start == formatted_end do
-      formatted_start
-    else
-      day_start = String.slice(formatted_start, 0, 2)
-      "#{day_start}-#{formatted_end}"
-    end
-  end
-
-  @doc """
-  Gets the favorite photo for a place, or the first photo if none is marked as favorite.
-  """
-  def get_favorite_photo(%Place{photos: photos}) when is_list(photos) do
-    Enum.find(photos, fn p -> p.is_favorite end) ||
-      Enum.min_by(photos, & &1.photo_num, fn -> nil end)
-  end
-
-  def get_favorite_photo(_), do: nil
+  defdelegate format_date_for_display(iso_date), to: ViewHelpers
+  defdelegate trip_dates_display(start_date, end_date), to: ViewHelpers
+  defdelegate get_favorite_photo(place), to: ViewHelpers
 end

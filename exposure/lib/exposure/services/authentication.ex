@@ -150,34 +150,52 @@ defmodule Exposure.Services.Authentication do
   Authenticates a user with username, password, and optional TOTP code.
   """
   def authenticate(username, password, totp_code \\ nil) do
-    case get_admin_user(username) do
-      nil ->
-        # Prevent timing attacks
+    with {:ok, user} <- fetch_user(username),
+         :ok <- verify_user_password(user, password),
+         :ok <- verify_totp_if_required(user, totp_code) do
+      update_last_login(user)
+      {:ok, user}
+    else
+      :user_not_found ->
+        # Prevent timing attacks by doing password hashing anyway
         _ = verify_password(password, hash_password("dummy"))
         {:error, @generic_auth_error}
 
-      user ->
-        if not verify_password(password, user.password_hash) do
-          {:error, @generic_auth_error}
-        else
-          if user.totp_enabled do
-            case totp_code do
-              nil ->
-                {:error, @generic_auth_error}
+      :invalid_password ->
+        {:error, @generic_auth_error}
 
-              code ->
-                if user.totp_secret && verify_totp_code(user.totp_secret, code) do
-                  update_last_login(user)
-                  {:ok, user}
-                else
-                  {:error, @generic_auth_error}
-                end
-            end
-          else
-            update_last_login(user)
-            {:ok, user}
-          end
-        end
+      :totp_required ->
+        {:error, @generic_auth_error}
+
+      :invalid_totp ->
+        {:error, @generic_auth_error}
+    end
+  end
+
+  defp fetch_user(username) do
+    case get_admin_user(username) do
+      nil -> :user_not_found
+      user -> {:ok, user}
+    end
+  end
+
+  defp verify_user_password(user, password) do
+    if verify_password(password, user.password_hash) do
+      :ok
+    else
+      :invalid_password
+    end
+  end
+
+  defp verify_totp_if_required(%{totp_enabled: false}, _totp_code), do: :ok
+
+  defp verify_totp_if_required(%{totp_enabled: true}, nil), do: :totp_required
+
+  defp verify_totp_if_required(%{totp_enabled: true, totp_secret: secret}, totp_code) do
+    if secret && verify_totp_code(secret, totp_code) do
+      :ok
+    else
+      :invalid_totp
     end
   end
 

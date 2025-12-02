@@ -6,6 +6,18 @@ defmodule ExposureWeb.AdminController do
 
   plug(:require_auth when action not in [:login, :do_login])
 
+  # Safe integer parsing that returns {:ok, integer} or {:error, message}
+  defp safe_parse_integer(value, _field_name) when is_integer(value), do: {:ok, value}
+
+  defp safe_parse_integer(value, field_name) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> {:ok, int}
+      _ -> {:error, "Invalid #{field_name}"}
+    end
+  end
+
+  defp safe_parse_integer(_, field_name), do: {:error, "Invalid #{field_name}"}
+
   # =============================================================================
   # Dashboard
   # =============================================================================
@@ -62,6 +74,7 @@ defmodule ExposureWeb.AdminController do
     with {:ok, _} <- InputValidation.validate_username(username),
          {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
       conn
+      |> configure_session(renew: true)
       |> put_session(:admin_user_id, user.id)
       |> put_session(:admin_username, user.username)
       |> redirect(to: ~p"/admin")
@@ -124,98 +137,99 @@ defmodule ExposureWeb.AdminController do
   end
 
   def edit(conn, %{"id" => id}) do
-    id = String.to_integer(id)
+    with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
+         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+      conn
+      |> put_root_layout(false)
+      |> render(:edit, place: place, errors: [])
+    else
+      {:error, _msg} ->
+        conn
+        |> put_status(:bad_request)
+        |> put_root_layout(false)
+        |> put_view(html: ExposureWeb.ErrorHTML)
+        |> render(:"404")
 
-    case Gallery.get_place(id) do
       nil ->
         conn
         |> put_status(:not_found)
         |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
-
-      place ->
-        conn
-        |> put_root_layout(false)
-        |> render(:edit, place: place, errors: [])
     end
   end
 
   def update(conn, %{"id" => id, "place" => place_params}) do
-    id = String.to_integer(id)
+    with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
+         {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID"),
+         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+      name = Map.get(place_params, "name", "")
+      location = Map.get(place_params, "location", "")
+      country = Map.get(place_params, "country", "")
+      start_date = Map.get(place_params, "start_date", "")
+      end_date = Map.get(place_params, "end_date")
 
-    case InputValidation.validate_id(id, "Place ID") do
+      case InputValidation.validate_place_form(
+             name,
+             location,
+             country,
+             start_date,
+             end_date
+           ) do
+        {:error, errors} ->
+          conn
+          |> put_root_layout(false)
+          |> render(:edit, place: place, errors: errors)
+
+        {:ok, {valid_name, valid_location, valid_country, valid_start_date, valid_end_date}} ->
+          attrs = %{
+            name: valid_name,
+            location: valid_location,
+            country: valid_country,
+            start_date: valid_start_date,
+            end_date: valid_end_date
+          }
+
+          case Gallery.update_place(place, attrs) do
+            {:ok, _} ->
+              redirect(conn, to: ~p"/admin")
+
+            {:error, _changeset} ->
+              conn
+              |> put_root_layout(false)
+              |> render(:edit, place: place, errors: ["Failed to update place"])
+          end
+      end
+    else
       {:error, msg} ->
         conn
         |> put_status(:bad_request)
         |> json(%{success: false, message: msg})
 
-      {:ok, valid_id} ->
-        case Gallery.get_place(valid_id) do
-          nil ->
-            conn
-            |> put_status(:not_found)
-            |> put_root_layout(false)
-            |> put_view(html: ExposureWeb.ErrorHTML)
-            |> render(:"404")
-
-          place ->
-            name = Map.get(place_params, "name", "")
-            location = Map.get(place_params, "location", "")
-            country = Map.get(place_params, "country", "")
-            start_date = Map.get(place_params, "start_date", "")
-            end_date = Map.get(place_params, "end_date")
-
-            case InputValidation.validate_place_form(
-                   name,
-                   location,
-                   country,
-                   start_date,
-                   end_date
-                 ) do
-              {:error, errors} ->
-                conn
-                |> put_root_layout(false)
-                |> render(:edit, place: place, errors: errors)
-
-              {:ok, {valid_name, valid_location, valid_country, valid_start_date, valid_end_date}} ->
-                attrs = %{
-                  name: valid_name,
-                  location: valid_location,
-                  country: valid_country,
-                  start_date: valid_start_date,
-                  end_date: valid_end_date
-                }
-
-                case Gallery.update_place(place, attrs) do
-                  {:ok, _} ->
-                    redirect(conn, to: ~p"/admin")
-
-                  {:error, _changeset} ->
-                    conn
-                    |> put_root_layout(false)
-                    |> render(:edit, place: place, errors: ["Failed to update place"])
-                end
-            end
-        end
+      nil ->
+        conn
+        |> put_status(:not_found)
+        |> put_root_layout(false)
+        |> put_view(html: ExposureWeb.ErrorHTML)
+        |> render(:"404")
     end
   end
 
   def delete(conn, %{"id" => id}) do
-    id = String.to_integer(id)
-
-    case InputValidation.validate_id(id, "Place ID") do
+    with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
+         {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID") do
+      if Photo.delete_place_with_photos(valid_id) do
+        json(conn, %{success: true, message: "Place deleted successfully"})
+      else
+        conn
+        |> put_status(:not_found)
+        |> json(%{success: false, message: "Place not found"})
+      end
+    else
       {:error, msg} ->
-        json(conn, %{success: false, message: msg})
-
-      {:ok, valid_id} ->
-        if Photo.delete_place_with_photos(valid_id) do
-          json(conn, %{success: true, message: "Place deleted successfully"})
-        else
-          conn
-          |> put_status(:not_found)
-          |> json(%{success: false, message: "Place not found"})
-        end
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, message: msg})
     end
   end
 
@@ -228,7 +242,7 @@ defmodule ExposureWeb.AdminController do
 
         is_map(order) ->
           order
-          |> Enum.sort_by(fn {k, _v} -> String.to_integer(k) end)
+          |> Enum.sort_by(fn {k, _v} -> safe_integer_for_sort(k) end)
           |> Enum.map(fn {_k, v} -> v end)
 
         true ->
@@ -246,8 +260,8 @@ defmodule ExposureWeb.AdminController do
           |> put_status(:bad_request)
           |> json(%{success: false, message: msg})
 
-        :ok ->
-          Gallery.reorder_places(order_list)
+        {:ok, validated_order} ->
+          Gallery.reorder_places(validated_order)
           json(conn, %{success: true, message: "Places reordered successfully"})
       end
     end
@@ -258,80 +272,82 @@ defmodule ExposureWeb.AdminController do
   # =============================================================================
 
   def photos(conn, %{"id" => id}) do
-    id = String.to_integer(id)
+    with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
+         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+      photos =
+        place.photos
+        |> Enum.sort_by(& &1.photo_num)
+        |> Enum.map(fn ph ->
+          %{
+            num: ph.photo_num,
+            slug: ph.slug,
+            file_name: ph.file_name,
+            is_favorite: ph.is_favorite
+          }
+        end)
 
-    case Gallery.get_place(id) do
+      conn
+      |> put_root_layout(false)
+      |> render(:photos,
+        place: %{
+          id: place.id,
+          name: place.name,
+          location: place.location,
+          country: place.country
+        },
+        total_photos: length(place.photos),
+        photos: photos
+      )
+    else
+      {:error, _msg} ->
+        conn
+        |> put_status(:bad_request)
+        |> put_root_layout(false)
+        |> put_view(html: ExposureWeb.ErrorHTML)
+        |> render(:"404")
+
       nil ->
         conn
         |> put_status(:not_found)
         |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
-
-      place ->
-        photos =
-          place.photos
-          |> Enum.sort_by(& &1.photo_num)
-          |> Enum.map(fn ph ->
-            %{
-              num: ph.photo_num,
-              slug: ph.slug,
-              file_name: ph.file_name,
-              is_favorite: ph.is_favorite
-            }
-          end)
-
-        conn
-        |> put_root_layout(false)
-        |> render(:photos,
-          place: %{
-            id: place.id,
-            name: place.name,
-            location: place.location,
-            country: place.country
-          },
-          total_photos: length(place.photos),
-          photos: photos
-        )
     end
   end
 
   def upload_photos(conn, %{"place_id" => place_id, "files" => files}) do
-    place_id = String.to_integer(place_id)
+    with {:ok, valid_id} <- safe_parse_integer(place_id, "Place ID"),
+         {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID") do
+      file_list = if is_list(files), do: files, else: [files]
 
-    case InputValidation.validate_id(place_id, "Place ID") do
+      if file_list == [] do
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, message: "No files uploaded"})
+      else
+        case Photo.upload_photos(valid_id, file_list) do
+          {:ok, count} ->
+            json(conn, %{success: true, message: "Uploaded #{count} photo(s)", count: count})
+
+          {:error, msg} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{success: false, message: msg})
+        end
+      end
+    else
       {:error, msg} ->
         conn
         |> put_status(:bad_request)
         |> json(%{success: false, message: msg})
-
-      {:ok, valid_id} ->
-        file_list = if is_list(files), do: files, else: [files]
-
-        if file_list == [] do
-          conn
-          |> put_status(:bad_request)
-          |> json(%{success: false, message: "No files uploaded"})
-        else
-          case Photo.upload_photos(valid_id, file_list) do
-            {:ok, count} ->
-              json(conn, %{success: true, message: "Uploaded #{count} photo(s)", count: count})
-
-            {:error, msg} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{success: false, message: msg})
-          end
-        end
     end
   end
 
   def delete_photo(conn, %{"place_id" => place_id, "photo_num" => photo_num}) do
-    place_id = String.to_integer(place_id)
-    photo_num = String.to_integer(photo_num)
-
-    with {:ok, valid_place_id} <- InputValidation.validate_id(place_id, "Place ID"),
-         {:ok, valid_photo_num} <- InputValidation.validate_id(photo_num, "Photo number") do
+    with {:ok, valid_place_id} <- safe_parse_integer(place_id, "Place ID"),
+         {:ok, valid_photo_num} <- safe_parse_integer(photo_num, "Photo number"),
+         {:ok, valid_place_id} <- InputValidation.validate_id(valid_place_id, "Place ID"),
+         {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.delete_photo(valid_place_id, valid_photo_num) do
         json(conn, %{success: true, message: "Photo deleted successfully"})
       else
@@ -348,8 +364,6 @@ defmodule ExposureWeb.AdminController do
   end
 
   def reorder_photos(conn, %{"place_id" => place_id, "order" => order}) do
-    place_id = String.to_integer(place_id)
-
     # Handle both list and map formats (FormData sends order[0], order[1] as a map)
     order_list =
       cond do
@@ -358,41 +372,41 @@ defmodule ExposureWeb.AdminController do
 
         is_map(order) ->
           order
-          |> Enum.sort_by(fn {k, _v} -> String.to_integer(k) end)
+          |> Enum.sort_by(fn {k, _v} -> safe_integer_for_sort(k) end)
           |> Enum.map(fn {_k, v} -> v end)
 
         true ->
           []
       end
 
-    case InputValidation.validate_id(place_id, "Place ID") do
+    with {:ok, valid_place_id} <- safe_parse_integer(place_id, "Place ID"),
+         {:ok, valid_place_id} <- InputValidation.validate_id(valid_place_id, "Place ID") do
+      if order_list == [] do
+        conn
+        |> put_status(:bad_request)
+        |> json(%{success: false, message: "No order provided"})
+      else
+        case validate_order_list(order_list) do
+          {:error, msg} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{success: false, message: msg})
+
+          {:ok, validated_order} ->
+            if Photo.reorder_photos(valid_place_id, validated_order) do
+              json(conn, %{success: true, message: "Photos reordered successfully"})
+            else
+              conn
+              |> put_status(:bad_request)
+              |> json(%{success: false, message: "Failed to reorder photos"})
+            end
+        end
+      end
+    else
       {:error, msg} ->
         conn
         |> put_status(:bad_request)
         |> json(%{success: false, message: msg})
-
-      {:ok, valid_place_id} ->
-        if order_list == [] do
-          conn
-          |> put_status(:bad_request)
-          |> json(%{success: false, message: "No order provided"})
-        else
-          case validate_order_list(order_list) do
-            {:error, msg} ->
-              conn
-              |> put_status(:bad_request)
-              |> json(%{success: false, message: msg})
-
-            :ok ->
-              if Photo.reorder_photos(valid_place_id, order_list) do
-                json(conn, %{success: true, message: "Photos reordered successfully"})
-              else
-                conn
-                |> put_status(:bad_request)
-                |> json(%{success: false, message: "Failed to reorder photos"})
-              end
-          end
-        end
     end
   end
 
@@ -401,12 +415,12 @@ defmodule ExposureWeb.AdminController do
         "photo_num" => photo_num,
         "is_favorite" => is_favorite
       }) do
-    place_id = String.to_integer(place_id)
-    photo_num = String.to_integer(photo_num)
     is_favorite = is_favorite == "true" or is_favorite == true
 
-    with {:ok, valid_place_id} <- InputValidation.validate_id(place_id, "Place ID"),
-         {:ok, valid_photo_num} <- InputValidation.validate_id(photo_num, "Photo number") do
+    with {:ok, valid_place_id} <- safe_parse_integer(place_id, "Place ID"),
+         {:ok, valid_photo_num} <- safe_parse_integer(photo_num, "Photo number"),
+         {:ok, valid_place_id} <- InputValidation.validate_id(valid_place_id, "Place ID"),
+         {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.set_favorite(valid_place_id, valid_photo_num, is_favorite) do
         message = if is_favorite, do: "Photo set as favorite", else: "Favorite removed"
         json(conn, %{success: true, message: message})
@@ -509,18 +523,30 @@ defmodule ExposureWeb.AdminController do
     end
   end
 
-  defp validate_order_list(order_list) do
-    invalid =
-      order_list
-      |> Enum.map(fn id ->
-        id = if is_binary(id), do: String.to_integer(id), else: id
-        InputValidation.validate_id(id, "Order value")
-      end)
-      |> Enum.find(fn result -> match?({:error, _}, result) end)
+  # Safe integer parsing for sorting (returns 0 on failure to avoid crashes)
+  defp safe_integer_for_sort(value) when is_integer(value), do: value
 
-    case invalid do
+  defp safe_integer_for_sort(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> 0
+    end
+  end
+
+  defp safe_integer_for_sort(_), do: 0
+
+  defp validate_order_list(order_list) do
+    results =
+      Enum.map(order_list, fn id ->
+        with {:ok, int_id} <- safe_parse_integer(id, "Order value"),
+             {:ok, validated_id} <- InputValidation.validate_id(int_id, "Order value") do
+          {:ok, validated_id}
+        end
+      end)
+
+    case Enum.find(results, fn result -> match?({:error, _}, result) end) do
       {:error, msg} -> {:error, msg}
-      nil -> :ok
+      nil -> {:ok, Enum.map(results, fn {:ok, id} -> id end)}
     end
   end
 end

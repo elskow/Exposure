@@ -10,7 +10,7 @@ defmodule Exposure.Services.Photo do
   alias Exposure.Repo
   alias Exposure.Gallery
   alias Exposure.Gallery.{Place, Photo}
-  alias Exposure.Services.{FileValidation, PathValidation, ImageProcessing}
+  alias Exposure.Services.{FileValidation, PathValidation, ImageProcessing, SlugGenerator}
 
   @doc """
   Uploads photos to a place.
@@ -75,7 +75,7 @@ defmodule Exposure.Services.Photo do
 
   @doc """
   Reorders photos for a place.
-  Uses raw SQL with CASE for efficient bulk update in 2 queries.
+  Uses Ecto queries for safe parameterized updates.
   """
   def reorder_photos(place_id, new_order) when is_list(new_order) do
     photo_count =
@@ -90,24 +90,26 @@ defmodule Exposure.Services.Photo do
 
       false
     else
-      # Build CASE expression: CASE photo_num WHEN 3 THEN 10001 WHEN 1 THEN 10002 ... END
-      case_clauses =
-        new_order
-        |> Enum.with_index(1)
-        |> Enum.map(fn {old_num, new_num} -> "WHEN #{old_num} THEN #{10_000 + new_num}" end)
-        |> Enum.join(" ")
+      # Ensure all values are integers
+      validated_order =
+        Enum.map(new_order, fn
+          n when is_integer(n) -> n
+          n when is_binary(n) -> String.to_integer(n)
+        end)
+
+      now = DateTime.utc_now()
 
       Repo.transaction(fn ->
-        # First query: offset using CASE (single query for all updates)
-        offset_sql = """
-        UPDATE photos 
-        SET photo_num = CASE photo_num #{case_clauses} END
-        WHERE place_id = $1 AND photo_num IN (#{Enum.join(new_order, ", ")})
-        """
+        # First pass: offset all photo_nums to avoid conflicts (add 10000)
+        validated_order
+        |> Enum.with_index(1)
+        |> Enum.each(fn {old_num, new_num} ->
+          Photo
+          |> where([p], p.place_id == ^place_id and p.photo_num == ^old_num)
+          |> Repo.update_all(set: [photo_num: 10_000 + new_num, updated_at: now])
+        end)
 
-        Repo.query!(offset_sql, [place_id])
-
-        # Second query: normalize (already efficient)
+        # Second pass: normalize (subtract 10000)
         Photo
         |> where([p], p.place_id == ^place_id and p.photo_num >= 10_000)
         |> Repo.update_all(inc: [photo_num: -10_000])
@@ -260,7 +262,7 @@ defmodule Exposure.Services.Photo do
         {:ok, %{width: width, height: height}} ->
           # Save to database with dimensions
           slug =
-            Gallery.generate_unique_slug(fn slug ->
+            SlugGenerator.generate_random_unique(fn slug ->
               Photo
               |> where([p], p.place_id == ^place_id and p.slug == ^slug)
               |> Repo.exists?()
