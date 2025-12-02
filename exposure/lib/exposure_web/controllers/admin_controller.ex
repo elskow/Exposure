@@ -59,14 +59,17 @@ defmodule ExposureWeb.AdminController do
     if get_session(conn, :admin_user_id) do
       redirect(conn, to: ~p"/admin")
     else
-      # If only OIDC is enabled, redirect directly to OIDC login
-      if OIDC.enabled?() and not OIDC.local_auth_enabled?() do
+      # If only OIDC is enabled and there's no error flash, redirect directly to OIDC login
+      # We check for flash errors to avoid redirect loops when OIDC config is broken
+      has_error = conn.assigns[:flash] && Phoenix.Flash.get(conn.assigns[:flash], :error)
+
+      if OIDC.enabled?() and not OIDC.local_auth_enabled?() and is_nil(has_error) do
         redirect(conn, to: ~p"/admin/auth/oidc")
       else
         conn
         |> put_root_layout(false)
         |> render(:login,
-          error: nil,
+          error: has_error,
           username: nil,
           oidc_enabled: OIDC.enabled?(),
           oidc_provider_name: OIDC.provider_name(),

@@ -8,8 +8,8 @@
 #          -v exposure_data:/app/data \
 #          exposure
 
-ARG ELIXIR_VERSION=1.18.4
-ARG OTP_VERSION=28.2
+ARG ELIXIR_VERSION=1.16.3
+ARG OTP_VERSION=26.0.2
 ARG DEBIAN_VERSION=bookworm-20251117-slim
 
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
@@ -38,6 +38,8 @@ RUN mix local.hex --force && \
 
 # Set build environment
 ENV MIX_ENV=prod
+# Disable JIT for cross-compilation compatibility (QEMU)
+ENV ERL_FLAGS="+JPperf true"
 
 # Install dependencies first (better layer caching)
 COPY mix.exs mix.lock ./
@@ -46,7 +48,11 @@ RUN mix deps.get --only $MIX_ENV
 # Copy compile-time config
 RUN mkdir config
 COPY config/config.exs config/${MIX_ENV}.exs config/
-RUN mix deps.compile
+
+# Compile deps one by one to avoid module loading issues in QEMU
+# Clean any stale build artifacts first, then compile deps
+RUN rm -rf _build deps/.mix deps/.elixir_ls 2>/dev/null || true && \
+    mix deps.compile
 
 # Copy application code
 COPY priv priv

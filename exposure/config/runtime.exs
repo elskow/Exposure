@@ -173,9 +173,9 @@ end
 
 # In production, require admin users if local auth is enabled
 if config_env() == :prod do
-  auth_cfg = Application.get_env(:exposure, :auth) || %{}
+  local_auth_enabled = auth_mode in ["local", "both"]
 
-  if auth_cfg[:local_enabled] != false and is_nil(System.get_env("ADMIN_USERS")) do
+  if local_auth_enabled and is_nil(System.get_env("ADMIN_USERS")) do
     raise """
     Environment variable ADMIN_USERS is missing.
     Please configure at least one admin user for local authentication.
