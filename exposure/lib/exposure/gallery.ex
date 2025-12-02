@@ -5,7 +5,7 @@ defmodule Exposure.Gallery do
 
   import Ecto.Query, warn: false
   alias Exposure.Repo
-  alias Exposure.Gallery.{Place, Photo, AdminUser}
+  alias Exposure.Gallery.Place
   alias Exposure.Services.SlugGenerator
 
   # =============================================================================
@@ -93,15 +93,6 @@ defmodule Exposure.Gallery do
   end
 
   @doc """
-  Increments the favorites count for a place.
-  """
-  def increment_favorites(%Place{} = place) do
-    place
-    |> Place.changeset(%{favorites: place.favorites + 1})
-    |> Repo.update()
-  end
-
-  @doc """
   Returns the total favorites count across all places.
   """
   def total_favorites do
@@ -111,29 +102,33 @@ defmodule Exposure.Gallery do
   end
 
   @doc """
-  Returns the count of all places.
-  """
-  def count_places do
-    Repo.aggregate(Place, :count)
-  end
-
-  @doc """
   Reorders places by the given list of ids.
-  All updates happen in a single transaction.
+  Uses a single batch UPDATE with CASE statement for efficiency.
   """
   def reorder_places(ordered_ids) when is_list(ordered_ids) do
     if ordered_ids == [] do
       {:ok, :no_changes}
     else
-      Repo.transaction(fn ->
+      # Build CASE statement for batch update
+      case_clauses =
         ordered_ids
         |> Enum.with_index()
-        |> Enum.each(fn {id, index} ->
-          Place
-          |> where([p], p.id == ^id)
-          |> Repo.update_all(set: [sort_order: index])
-        end)
-      end)
+        |> Enum.map(fn {id, order} -> "WHEN #{id} THEN #{order}" end)
+        |> Enum.join(" ")
+
+      ids_list = Enum.join(ordered_ids, ", ")
+
+      sql = """
+      UPDATE places
+      SET sort_order = CASE id #{case_clauses} END,
+          updated_at = NOW()
+      WHERE id IN (#{ids_list})
+      """
+
+      case Repo.query(sql, []) do
+        {:ok, _result} -> {:ok, :reordered}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -145,125 +140,6 @@ defmodule Exposure.Gallery do
         p.name_slug == ^name_slug
     )
     |> Repo.exists?()
-  end
-
-  # =============================================================================
-  # Photos
-  # =============================================================================
-
-  @doc """
-  Gets a single photo by id.
-  """
-  def get_photo(id), do: Repo.get(Photo, id) |> Repo.preload(:place)
-
-  @doc """
-  Gets a photo by place and slug.
-  """
-  def get_photo_by_slug(place_id, slug) do
-    Photo
-    |> where([ph], ph.place_id == ^place_id and ph.slug == ^slug)
-    |> preload(:place)
-    |> Repo.one()
-  end
-
-  @doc """
-  Creates a photo for a place.
-  """
-  def create_photo(%Place{} = place, attrs \\ %{}) do
-    max_photo_num =
-      Photo
-      |> where([ph], ph.place_id == ^place.id)
-      |> select([ph], max(ph.photo_num))
-      |> Repo.one() || 0
-
-    slug_exists_fn = fn slug ->
-      Photo
-      |> where([ph], ph.place_id == ^place.id and ph.slug == ^slug)
-      |> Repo.exists?()
-    end
-
-    attrs =
-      attrs
-      |> Map.put(:place_id, place.id)
-      |> Map.put(:photo_num, max_photo_num + 1)
-      |> Map.put(:slug, generate_unique_slug(slug_exists_fn))
-
-    %Photo{}
-    |> Photo.changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  Updates a photo.
-  """
-  def update_photo(%Photo{} = photo, attrs) do
-    photo
-    |> Photo.changeset(attrs)
-    |> Repo.update()
-  end
-
-  @doc """
-  Deletes a photo.
-  """
-  def delete_photo(%Photo{} = photo) do
-    Repo.delete(photo)
-  end
-
-  @doc """
-  Sets a photo as the favorite for its place.
-  """
-  def set_favorite_photo(%Photo{} = photo) do
-    Repo.transaction(fn ->
-      # Unset all other favorites for this place
-      Photo
-      |> where([ph], ph.place_id == ^photo.place_id and ph.id != ^photo.id)
-      |> Repo.update_all(set: [is_favorite: false])
-
-      # Set this photo as favorite
-      photo
-      |> Photo.changeset(%{is_favorite: true})
-      |> Repo.update!()
-    end)
-  end
-
-  # =============================================================================
-  # Admin Users
-  # =============================================================================
-
-  @doc """
-  Gets an admin user by username.
-  """
-  def get_admin_by_username(username) do
-    AdminUser
-    |> where([a], a.username == ^username)
-    |> Repo.one()
-  end
-
-  @doc """
-  Creates an admin user.
-  """
-  def create_admin_user(attrs \\ %{}) do
-    %AdminUser{}
-    |> AdminUser.changeset(attrs)
-    |> Repo.insert()
-  end
-
-  @doc """
-  Updates an admin user.
-  """
-  def update_admin_user(%AdminUser{} = admin_user, attrs) do
-    admin_user
-    |> AdminUser.changeset(attrs)
-    |> Repo.update()
-  end
-
-  @doc """
-  Updates the last login timestamp for an admin user.
-  """
-  def update_last_login(%AdminUser{} = admin_user) do
-    admin_user
-    |> AdminUser.changeset(%{last_login_at: DateTime.utc_now()})
-    |> Repo.update()
   end
 
   # =============================================================================

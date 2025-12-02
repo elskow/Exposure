@@ -6,18 +6,14 @@
   <title>Photo <%= @photo.photo_num %> - <%= @photo.place_name %></title>
   <link rel="stylesheet" href="/assets/css/app.css" />
   <style>
-    body { font-family: 'DM Mono', monospace; }
-    ::-webkit-scrollbar { display: none; }
-
     /* Keyboard focus styles */
     a:focus, button:focus {
       outline: 2px solid #000;
       outline-offset: 2px;
     }
 
-    /* Progressive image loading */
+    /* Photo container responsive sizing */
     .photo-container {
-      position: relative;
       max-height: 75vh;
       max-width: min(95vw, 85vw);
       width: auto;
@@ -27,68 +23,6 @@
       .photo-container {
         max-width: 85vw;
       }
-    }
-    .photo-placeholder {
-      position: absolute;
-      inset: 0;
-      filter: blur(20px);
-      transform: scale(1.1);
-      transition: opacity 0.5s ease-out;
-      z-index: 1;
-    }
-    .photo-main {
-      position: relative;
-      z-index: 2;
-      opacity: 0;
-      transition: opacity 0.5s ease-out;
-    }
-    .photo-main.loaded {
-      opacity: 1;
-    }
-    .photo-placeholder.hidden {
-      opacity: 0;
-      pointer-events: none;
-    }
-    .loading-spinner {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 3;
-      transition: opacity 0.3s ease-out;
-    }
-    .loading-spinner.hidden {
-      opacity: 0;
-      pointer-events: none;
-    }
-    .spinner {
-      width: 24px;
-      height: 24px;
-      border: 2px solid #e5e5e5;
-      border-top-color: #111;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border-width: 0;
-    }
-
-    body.keyboard-user *:focus {
-      outline: 2px solid #000 !important;
-      outline-offset: 3px !important;
     }
   </style>
 

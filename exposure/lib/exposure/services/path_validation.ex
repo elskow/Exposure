@@ -4,6 +4,7 @@ defmodule Exposure.Services.PathValidation do
   """
 
   require Logger
+  alias Exposure.Services.InputValidation
 
   @doc """
   Returns the wwwroot (priv/static) path.
@@ -15,19 +16,16 @@ defmodule Exposure.Services.PathValidation do
 
   @doc """
   Validates an ID (positive integer with reasonable bounds).
+  Delegates to InputValidation and adds logging for security auditing.
   """
   def validate_id(id, param_name) when is_integer(id) do
-    cond do
-      id < 1 ->
-        Logger.warning("Invalid #{param_name}: value #{id} is less than 1")
-        {:error, "#{param_name} must be greater than 0"}
+    case InputValidation.validate_id(id, param_name) do
+      {:ok, valid_id} ->
+        {:ok, valid_id}
 
-      id > 999_999 ->
-        Logger.warning("Invalid #{param_name}: value #{id} exceeds maximum")
-        {:error, "#{param_name} exceeds maximum allowed value"}
-
-      true ->
-        {:ok, id}
+      {:error, msg} ->
+        Logger.warning("Invalid #{param_name}: #{msg}")
+        {:error, msg}
     end
   end
 

@@ -88,23 +88,6 @@
     src: url('/fonts/dm-mono/dm-mono-italic-400.ttf') format('truetype');
 }
 
-/* DM Serif Display - Serif Display */
-@font-face {
-    font-family: 'DM Serif Display';
-    font-style: normal;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/dm-serif-display/dm-serif-display-400.ttf') format('truetype');
-}
-
-@font-face {
-    font-family: 'DM Serif Display';
-    font-style: italic;
-    font-weight: 400;
-    font-display: swap;
-    src: url('/fonts/dm-serif-display/dm-serif-display-italic-400.ttf') format('truetype');
-}
-
 /* Lora - Serif */
 @font-face {
     font-family: 'Lora';
