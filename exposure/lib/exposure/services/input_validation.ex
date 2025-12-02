@@ -3,33 +3,40 @@ defmodule Exposure.Services.InputValidation do
   Input validation service for sanitizing and validating user input.
   """
 
-  @sql_injection_patterns [
-    ~r/(\bOR\b|\bAND\b).*(=|<|>)/i,
-    ~r/('|")\s*(OR|AND)\s*('|").*=.*('|").*/i,
-    ~r/(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+/i,
-    ~r/(--|#|\/\*|\*\/)/i,
-    ~r/(xp_|sp_|0x[0-9a-fA-F]+)/i
-  ]
-
-  @xss_patterns [
-    ~r/<script[^>]*>.*?<\/script>/is,
-    ~r/javascript:/i,
-    ~r/on\w+\s*=/i,
-    ~r/<iframe[^>]*>/i,
-    ~r/<object[^>]*>/i,
-    ~r/<embed[^>]*>/i
-  ]
-
-  @path_traversal_patterns [
-    ~r/\.\./,
-    ~r/(\\|\/)\.\.(\\|\/)/,
-    ~r/%2e%2e/i,
-    ~r/\.{2,}/
-  ]
-
   @iso_date_regex ~r/^\d{4}-\d{2}-\d{2}$/
   @username_regex ~r/^[a-zA-Z0-9_-]+$/
   @totp_code_regex ~r/^\d{6}$/
+
+  # Compile patterns once at module load time as module-level functions
+  defp sql_injection_patterns do
+    [
+      ~r/(\bOR\b|\bAND\b).*(=|<|>)/i,
+      ~r/('|")\s*(OR|AND)\s*('|").*=.*('|").*/i,
+      ~r/(UNION|SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE)\s+/i,
+      ~r/(--|#|\/\*|\*\/)/i,
+      ~r/(xp_|sp_|0x[0-9a-fA-F]+)/i
+    ]
+  end
+
+  defp xss_patterns do
+    [
+      ~r/<script[^>]*>.*?<\/script>/is,
+      ~r/javascript:/i,
+      ~r/on\w+\s*=/i,
+      ~r/<iframe[^>]*>/i,
+      ~r/<object[^>]*>/i,
+      ~r/<embed[^>]*>/i
+    ]
+  end
+
+  defp path_traversal_patterns do
+    [
+      ~r/\.\./,
+      ~r/(\\|\/)\.\.(\\|\/)/,
+      ~r/%2e%2e/i,
+      ~r/\.{2,}/
+    ]
+  end
 
   @doc """
   Sanitizes a string by escaping HTML special characters.
@@ -239,14 +246,14 @@ defmodule Exposure.Services.InputValidation do
   end
 
   defp contains_sql_injection?(input) when is_binary(input) do
-    Enum.any?(@sql_injection_patterns, &Regex.match?(&1, input))
+    Enum.any?(sql_injection_patterns(), &Regex.match?(&1, input))
   end
 
   defp contains_xss?(input) when is_binary(input) do
-    Enum.any?(@xss_patterns, &Regex.match?(&1, input))
+    Enum.any?(xss_patterns(), &Regex.match?(&1, input))
   end
 
   defp contains_path_traversal?(input) when is_binary(input) do
-    Enum.any?(@path_traversal_patterns, &Regex.match?(&1, input))
+    Enum.any?(path_traversal_patterns(), &Regex.match?(&1, input))
   end
 end

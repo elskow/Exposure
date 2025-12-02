@@ -1,10 +1,8 @@
 defmodule ExposureWeb.HomeController do
   use ExposureWeb, :controller
 
-  alias Exposure.Gallery
-
   def index(conn, _params) do
-    places = Gallery.list_places_with_stats()
+    places = Exposure.list_places_with_stats()
 
     place_summaries =
       Enum.map(places, fn place ->
@@ -17,7 +15,7 @@ defmodule ExposureWeb.HomeController do
           location: place.location,
           country: place.country,
           photos: place.photo_count,
-          trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
+          trip_dates: Exposure.trip_dates_display(place.start_date, place.end_date),
           sort_order: place.sort_order,
           favorite_photo_num: place.favorite_photo_num,
           favorite_photo_file_name: place.favorite_photo_file_name

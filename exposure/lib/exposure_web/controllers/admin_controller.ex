@@ -1,10 +1,9 @@
 defmodule ExposureWeb.AdminController do
   use ExposureWeb, :controller
 
-  alias Exposure.Gallery
-  alias Exposure.Services.{Authentication, InputValidation, Photo, RateLimiter}
+  alias Exposure.Services.{Authentication, InputValidation, OIDC, Photo, RateLimiter}
 
-  plug(:require_auth when action not in [:login, :do_login])
+  plug(:require_auth when action not in [:login, :do_login, :oidc_login, :oidc_callback])
 
   # Safe integer parsing that returns {:ok, integer} or {:error, message}
   defp safe_parse_integer(value, _field_name) when is_integer(value), do: {:ok, value}
@@ -23,9 +22,9 @@ defmodule ExposureWeb.AdminController do
   # =============================================================================
 
   def index(conn, _params) do
-    places = Gallery.list_places_with_stats()
+    places = Exposure.list_places_with_stats()
     total_photos = Enum.sum(Enum.map(places, fn p -> p.photo_count end))
-    total_favorites = Gallery.total_favorites()
+    total_favorites = Exposure.total_favorites()
 
     place_summaries =
       Enum.map(places, fn place ->
@@ -35,7 +34,7 @@ defmodule ExposureWeb.AdminController do
           location: place.location,
           country: place.country,
           photos: place.photo_count,
-          trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
+          trip_dates: Exposure.trip_dates_display(place.start_date, place.end_date),
           sort_order: place.sort_order,
           favorite_photo_num: place.favorite_photo_num,
           favorite_photo_file_name: place.favorite_photo_file_name
@@ -60,46 +59,141 @@ defmodule ExposureWeb.AdminController do
     if get_session(conn, :admin_user_id) do
       redirect(conn, to: ~p"/admin")
     else
-      conn
-      |> put_root_layout(false)
-      |> render(:login, error: nil, username: nil)
+      # If only OIDC is enabled, redirect directly to OIDC login
+      if OIDC.enabled?() and not OIDC.local_auth_enabled?() do
+        redirect(conn, to: ~p"/admin/auth/oidc")
+      else
+        conn
+        |> put_root_layout(false)
+        |> render(:login,
+          error: nil,
+          username: nil,
+          oidc_enabled: OIDC.enabled?(),
+          oidc_provider_name: OIDC.provider_name(),
+          local_auth_enabled: OIDC.local_auth_enabled?()
+        )
+      end
     end
   end
 
   def do_login(conn, %{"username" => username, "password" => password} = params) do
-    totp_code = Map.get(params, "totp_code")
+    # Check if local auth is enabled
+    unless OIDC.local_auth_enabled?() do
+      conn
+      |> put_root_layout(false)
+      |> render(:login,
+        error: "Local authentication is disabled",
+        username: nil,
+        oidc_enabled: OIDC.enabled?(),
+        oidc_provider_name: OIDC.provider_name(),
+        local_auth_enabled: false
+      )
+    else
+      totp_code = Map.get(params, "totp_code")
 
-    # Check rate limit first
-    case RateLimiter.check_rate(username) do
-      {:error, seconds_remaining} ->
-        conn
-        |> put_root_layout(false)
-        |> render(:login,
-          error: "Too many login attempts. Please try again in #{seconds_remaining} seconds.",
-          username: username
-        )
-
-      :ok ->
-        with {:ok, _} <- InputValidation.validate_username(username),
-             {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
-          # Clear rate limit on successful login
-          RateLimiter.clear(username)
-
+      # Check rate limit first
+      case RateLimiter.check_rate(username) do
+        {:error, seconds_remaining} ->
           conn
-          |> configure_session(renew: true)
-          |> put_session(:admin_user_id, user.id)
-          |> put_session(:admin_username, user.username)
-          |> redirect(to: ~p"/admin")
-        else
-          {:error, msg} ->
-            # Record failed attempt
-            RateLimiter.record_failure(username)
+          |> put_root_layout(false)
+          |> render(:login,
+            error: "Too many login attempts. Please try again in #{seconds_remaining} seconds.",
+            username: username,
+            oidc_enabled: OIDC.enabled?(),
+            oidc_provider_name: OIDC.provider_name(),
+            local_auth_enabled: OIDC.local_auth_enabled?()
+          )
+
+        :ok ->
+          with {:ok, _} <- InputValidation.validate_username(username),
+               {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
+            # Clear rate limit on successful login
+            RateLimiter.clear(username)
 
             conn
-            |> put_root_layout(false)
-            |> render(:login, error: msg, username: username)
-        end
+            |> configure_session(renew: true)
+            |> put_session(:admin_user_id, user.id)
+            |> put_session(:admin_username, user.username)
+            |> redirect(to: ~p"/admin")
+          else
+            {:error, msg} ->
+              # Record failed attempt
+              RateLimiter.record_failure(username)
+
+              conn
+              |> put_root_layout(false)
+              |> render(:login,
+                error: msg,
+                username: username,
+                oidc_enabled: OIDC.enabled?(),
+                oidc_provider_name: OIDC.provider_name(),
+                local_auth_enabled: OIDC.local_auth_enabled?()
+              )
+          end
+      end
     end
+  end
+
+  # =============================================================================
+  # OIDC Authentication
+  # =============================================================================
+
+  def oidc_login(conn, _params) do
+    unless OIDC.enabled?() do
+      conn
+      |> put_flash(:error, "OIDC authentication is not enabled")
+      |> redirect(to: ~p"/admin/login")
+    else
+      case OIDC.authorization_url() do
+        {:ok, url, state, nonce} ->
+          conn
+          |> put_session(:oidc_state, state)
+          |> put_session(:oidc_nonce, nonce)
+          |> redirect(external: url)
+
+        {:error, reason} ->
+          conn
+          |> put_flash(:error, "Failed to initiate SSO: #{reason}")
+          |> redirect(to: ~p"/admin/login")
+      end
+    end
+  end
+
+  def oidc_callback(conn, %{"code" => code, "state" => state}) do
+    stored_state = get_session(conn, :oidc_state)
+    stored_nonce = get_session(conn, :oidc_nonce)
+
+    case OIDC.callback(code, state, stored_state, stored_nonce) do
+      {:ok, user_info} ->
+        # Create a session identifier based on OIDC subject
+        session_id = "oidc:#{user_info.sub}"
+
+        conn
+        |> configure_session(renew: true)
+        |> delete_session(:oidc_state)
+        |> delete_session(:oidc_nonce)
+        |> put_session(:admin_user_id, session_id)
+        |> put_session(:admin_username, user_info.name || user_info.email)
+        |> put_session(:auth_method, :oidc)
+        |> redirect(to: ~p"/admin")
+
+      {:error, reason} ->
+        conn
+        |> delete_session(:oidc_state)
+        |> delete_session(:oidc_nonce)
+        |> put_flash(:error, reason)
+        |> redirect(to: ~p"/admin/login")
+    end
+  end
+
+  def oidc_callback(conn, %{"error" => error} = params) do
+    error_description = Map.get(params, "error_description", error)
+
+    conn
+    |> delete_session(:oidc_state)
+    |> delete_session(:oidc_nonce)
+    |> put_flash(:error, "SSO error: #{error_description}")
+    |> redirect(to: ~p"/admin/login")
   end
 
   def logout(conn, _params) do
@@ -140,7 +234,7 @@ defmodule ExposureWeb.AdminController do
           end_date: valid_end_date
         }
 
-        case Gallery.create_place(attrs) do
+        case Exposure.create_place(attrs) do
           {:ok, place} ->
             redirect(conn, to: ~p"/admin/edit/#{place.id}")
 
@@ -154,7 +248,7 @@ defmodule ExposureWeb.AdminController do
 
   def edit(conn, %{"id" => id}) do
     with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
-         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+         place when not is_nil(place) <- Exposure.get_place(valid_id) do
       conn
       |> put_root_layout(false)
       |> render(:edit, place: place, errors: [])
@@ -178,7 +272,7 @@ defmodule ExposureWeb.AdminController do
   def update(conn, %{"id" => id, "place" => place_params}) do
     with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
          {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID"),
-         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+         place when not is_nil(place) <- Exposure.get_place(valid_id) do
       name = Map.get(place_params, "name", "")
       location = Map.get(place_params, "location", "")
       country = Map.get(place_params, "country", "")
@@ -206,7 +300,7 @@ defmodule ExposureWeb.AdminController do
             end_date: valid_end_date
           }
 
-          case Gallery.update_place(place, attrs) do
+          case Exposure.update_place(place, attrs) do
             {:ok, _} ->
               redirect(conn, to: ~p"/admin")
 
@@ -277,7 +371,7 @@ defmodule ExposureWeb.AdminController do
           |> json(%{success: false, message: msg})
 
         {:ok, validated_order} ->
-          Gallery.reorder_places(validated_order)
+          Exposure.reorder_places(validated_order)
           json(conn, %{success: true, message: "Places reordered successfully"})
       end
     end
@@ -289,7 +383,7 @@ defmodule ExposureWeb.AdminController do
 
   def photos(conn, %{"id" => id}) do
     with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
-         place when not is_nil(place) <- Gallery.get_place(valid_id) do
+         place when not is_nil(place) <- Exposure.get_place(valid_id) do
       photos =
         place.photos
         |> Enum.sort_by(& &1.photo_num)
@@ -462,7 +556,7 @@ defmodule ExposureWeb.AdminController do
 
     case Authentication.enable_totp(username) do
       {:ok, secret} ->
-        qr_code_bytes = Authentication.generate_totp_qr_code(username, secret, "Gallery Admin")
+        qr_code_bytes = Authentication.generate_totp_qr_code(username, secret, "Exposure")
         qr_code_base64 = Base.encode64(qr_code_bytes)
 
         conn

@@ -33,6 +33,10 @@ defmodule ExposureWeb.Router do
     post("/login", AdminController, :do_login)
     post("/logout", AdminController, :logout)
 
+    # OIDC routes
+    get("/auth/oidc", AdminController, :oidc_login)
+    get("/auth/callback", AdminController, :oidc_callback)
+
     get("/create", AdminController, :create)
     post("/create", AdminController, :do_create)
 

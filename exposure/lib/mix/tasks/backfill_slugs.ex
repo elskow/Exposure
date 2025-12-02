@@ -25,7 +25,7 @@ defmodule Mix.Tasks.BackfillSlugs do
     Mix.Task.run("app.start")
 
     alias Exposure.Repo
-    alias Exposure.Gallery.Place
+    alias Exposure.Place
     alias Exposure.Services.SlugGenerator
 
     import Ecto.Query

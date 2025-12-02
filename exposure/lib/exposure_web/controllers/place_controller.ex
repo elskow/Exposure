@@ -1,10 +1,8 @@
 defmodule ExposureWeb.PlaceController do
   use ExposureWeb, :controller
 
-  alias Exposure.Gallery
-
   def index(conn, %{"country" => country, "location" => location, "name" => name}) do
-    case Gallery.get_place_by_slugs(country, location, name) do
+    case Exposure.get_place_by_slugs(country, location, name) do
       nil ->
         conn
         |> put_status(:not_found)
@@ -35,7 +33,7 @@ defmodule ExposureWeb.PlaceController do
           country: place.country,
           total_photos: length(place.photos),
           favorites: place.favorites,
-          trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
+          trip_dates: Exposure.trip_dates_display(place.start_date, place.end_date),
           photos: photos
         }
 
@@ -49,7 +47,7 @@ defmodule ExposureWeb.PlaceController do
         "name" => name,
         "photo" => photo_slug
       }) do
-    case Gallery.get_place_by_slugs(country, location, name) do
+    case Exposure.get_place_by_slugs(country, location, name) do
       nil ->
         conn
         |> put_status(:not_found)
@@ -102,7 +100,7 @@ defmodule ExposureWeb.PlaceController do
               place_name: place.name,
               location: place.location,
               country: place.country,
-              trip_dates: Gallery.trip_dates_display(place.start_date, place.end_date),
+              trip_dates: Exposure.trip_dates_display(place.start_date, place.end_date),
               unique_id: unique_id,
               prev_photo: prev_photo && prev_photo.photo_num,
               next_photo: next_photo && next_photo.photo_num,

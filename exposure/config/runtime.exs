@@ -23,7 +23,23 @@ end
 config :exposure, ExposureWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-# Admin users configuration from environment variables
+# =============================================================================
+# Authentication Configuration
+# =============================================================================
+# AUTH_MODE can be: "local", "oidc", or "both" (default: "local")
+# - local: username/password authentication only
+# - oidc: OIDC/SSO authentication only
+# - both: both methods available
+auth_mode = System.get_env("AUTH_MODE", "local")
+
+config :exposure, :auth,
+  mode: auth_mode,
+  local_enabled: auth_mode in ["local", "both"],
+  oidc_enabled: auth_mode in ["oidc", "both"]
+
+# =============================================================================
+# Local Authentication (Admin Users)
+# =============================================================================
 # Format: "username1:password1,username2:password2"
 # Example: ADMIN_USERS="admin:secretpass,editor:editorpass"
 if admin_users_env = System.get_env("ADMIN_USERS") do
@@ -50,17 +66,126 @@ if admin_users_env = System.get_env("ADMIN_USERS") do
   config :exposure, :admin_users, admin_users
 end
 
-# In production, require at least one admin user
+# =============================================================================
+# OIDC Configuration
+# =============================================================================
+# Required when AUTH_MODE is "oidc" or "both":
+#   OIDC_CLIENT_ID - Client ID from your OIDC provider
+#   OIDC_CLIENT_SECRET - Client secret from your OIDC provider
+#   OIDC_ISSUER_URL - Issuer URL (used for discovery) OR set endpoints manually:
+#     OIDC_AUTHORIZATION_ENDPOINT - Authorization endpoint URL
+#     OIDC_TOKEN_ENDPOINT - Token endpoint URL
+#     OIDC_USERINFO_ENDPOINT - UserInfo endpoint URL (optional)
+#
+# Optional:
+#   OIDC_PROVIDER_NAME - Display name for the SSO button (default: "SSO")
+#   OIDC_SCOPE - OAuth scopes (default: "openid email profile")
+#   OIDC_ALLOWED_EMAILS - Comma-separated list of allowed emails
+#   OIDC_ALLOWED_DOMAINS - Comma-separated list of allowed email domains
+#
+# Examples:
+#   # Google
+#   OIDC_ISSUER_URL=https://accounts.google.com
+#   OIDC_CLIENT_ID=your-client-id.apps.googleusercontent.com
+#   OIDC_CLIENT_SECRET=your-secret
+#   OIDC_ALLOWED_DOMAINS=yourcompany.com
+#
+#   # Keycloak
+#   OIDC_ISSUER_URL=https://keycloak.example.com/realms/your-realm
+#   OIDC_CLIENT_ID=exposure
+#   OIDC_CLIENT_SECRET=your-secret
+
+if auth_mode in ["oidc", "both"] do
+  oidc_client_id = System.get_env("OIDC_CLIENT_ID")
+  oidc_client_secret = System.get_env("OIDC_CLIENT_SECRET")
+
+  if is_nil(oidc_client_id) or is_nil(oidc_client_secret) do
+    raise """
+    OIDC authentication is enabled but missing required configuration.
+
+    Required environment variables:
+      OIDC_CLIENT_ID - Your OIDC client ID
+      OIDC_CLIENT_SECRET - Your OIDC client secret
+
+    And either:
+      OIDC_ISSUER_URL - For auto-discovery of endpoints
+
+    Or manually set:
+      OIDC_AUTHORIZATION_ENDPOINT
+      OIDC_TOKEN_ENDPOINT
+    """
+  end
+
+  # Build redirect URI from host
+  host = System.get_env("PHX_HOST", "localhost:4000")
+  scheme = if config_env() == :prod, do: "https", else: "http"
+  redirect_uri = System.get_env("OIDC_REDIRECT_URI", "#{scheme}://#{host}/admin/auth/callback")
+
+  # Try to use discovery URL or manual endpoints
+  issuer_url = System.get_env("OIDC_ISSUER_URL")
+
+  {auth_endpoint, token_endpoint, userinfo_endpoint} =
+    if issuer_url do
+      # Common OIDC discovery endpoints
+      base = String.trim_trailing(issuer_url, "/")
+
+      {
+        System.get_env("OIDC_AUTHORIZATION_ENDPOINT", "#{base}/protocol/openid-connect/auth"),
+        System.get_env("OIDC_TOKEN_ENDPOINT", "#{base}/protocol/openid-connect/token"),
+        System.get_env("OIDC_USERINFO_ENDPOINT", "#{base}/protocol/openid-connect/userinfo")
+      }
+    else
+      {
+        System.get_env("OIDC_AUTHORIZATION_ENDPOINT"),
+        System.get_env("OIDC_TOKEN_ENDPOINT"),
+        System.get_env("OIDC_USERINFO_ENDPOINT")
+      }
+    end
+
+  # Parse allowed emails and domains
+  allowed_emails =
+    case System.get_env("OIDC_ALLOWED_EMAILS") do
+      nil -> []
+      "" -> []
+      emails -> String.split(emails, ",", trim: true) |> Enum.map(&String.trim/1)
+    end
+
+  allowed_domains =
+    case System.get_env("OIDC_ALLOWED_DOMAINS") do
+      nil -> []
+      "" -> []
+      domains -> String.split(domains, ",", trim: true) |> Enum.map(&String.trim/1)
+    end
+
+  config :exposure, :oidc,
+    enabled: true,
+    provider_name: System.get_env("OIDC_PROVIDER_NAME", "SSO"),
+    client_id: oidc_client_id,
+    client_secret: oidc_client_secret,
+    redirect_uri: redirect_uri,
+    authorization_endpoint: auth_endpoint,
+    token_endpoint: token_endpoint,
+    userinfo_endpoint: userinfo_endpoint,
+    scope: System.get_env("OIDC_SCOPE", "openid email profile"),
+    allowed_emails: allowed_emails,
+    allowed_domains: allowed_domains
+end
+
+# In production, require admin users if local auth is enabled
 if config_env() == :prod do
-  unless System.get_env("ADMIN_USERS") do
+  auth_cfg = Application.get_env(:exposure, :auth) || %{}
+
+  if auth_cfg[:local_enabled] != false and is_nil(System.get_env("ADMIN_USERS")) do
     raise """
     Environment variable ADMIN_USERS is missing.
-    Please configure at least one admin user.
+    Please configure at least one admin user for local authentication.
 
     Format: "username:password" or "user1:pass1,user2:pass2" for multiple admins
 
     Example:
       export ADMIN_USERS="admin:your-secure-password-here"
+
+    Or set AUTH_MODE=oidc to disable local authentication.
     """
   end
 end

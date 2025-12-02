@@ -24,7 +24,7 @@ defmodule Mix.Tasks.BackfillDimensions do
     Mix.Task.run("app.start")
 
     alias Exposure.Repo
-    alias Exposure.Gallery.Photo
+    alias Exposure.Photo
 
     import Ecto.Query
 

@@ -1,4 +1,4 @@
-defmodule Exposure.Gallery.Place do
+defmodule Exposure.Place do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -14,7 +14,7 @@ defmodule Exposure.Gallery.Place do
     field(:favorites, :integer, default: 0)
     field(:sort_order, :integer, default: 0)
 
-    has_many(:photos, Exposure.Gallery.Photo)
+    has_many(:photos, Exposure.Photo)
 
     timestamps(type: :utc_datetime)
   end

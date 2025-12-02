@@ -12,7 +12,7 @@ defmodule Exposure.Services.AdminSync do
   require Logger
 
   alias Exposure.Repo
-  alias Exposure.Gallery.AdminUser
+  alias Exposure.AdminUser
   alias Exposure.Services.Authentication
 
   import Ecto.Query

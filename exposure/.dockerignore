@@ -1,0 +1,52 @@
+# Git
+.git
+.gitignore
+
+# Elixir/Phoenix build artifacts
+_build/
+deps/
+*.ez
+
+# Generated files
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Node (if using npm for assets)
+node_modules/
+
+# Test and development
+/test/
+/.elixir_ls/
+/cover/
+*.cover
+
+# Database files (we mount these as volumes)
+*.db
+*.db-*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+
+# Logs
+*.log
+/log/
+
+# Temporary files
+/tmp/
+erl_crash.dump

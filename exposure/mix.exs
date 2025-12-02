@@ -69,7 +69,9 @@ defmodule Exposure.MixProject do
       # Image processing
       {:image, "~> 0.54"},
       # QR code generation
-      {:eqrcode, "~> 0.1.10"}
+      {:eqrcode, "~> 0.1.10"},
+      # OIDC authentication
+      {:openid_connect, "~> 1.0"}
     ]
   end
 

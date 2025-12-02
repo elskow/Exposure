@@ -8,8 +8,7 @@ defmodule Exposure.Services.Photo do
   import Ecto.Query
 
   alias Exposure.Repo
-  alias Exposure.Gallery
-  alias Exposure.Gallery.{Place, Photo}
+  alias Exposure.{Place, Photo}
   alias Exposure.Services.{FileValidation, PathValidation, ImageProcessing, SlugGenerator}
 
   @doc """
@@ -156,13 +155,13 @@ defmodule Exposure.Services.Photo do
         Logger.warning("Failed to delete photos directory for placeId #{place_id}: #{msg}")
     end
 
-    case Gallery.get_place(place_id) do
+    case Exposure.get_place(place_id) do
       nil ->
         Logger.warning("Failed to delete place #{place_id} from database")
         false
 
       place ->
-        case Gallery.delete_place(place) do
+        case Exposure.delete_place(place) do
           {:ok, _} ->
             Logger.info("Successfully deleted place #{place_id} with all photos")
             true

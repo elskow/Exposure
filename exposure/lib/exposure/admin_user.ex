@@ -1,4 +1,4 @@
-defmodule Exposure.Gallery.AdminUser do
+defmodule Exposure.AdminUser do
   use Ecto.Schema
   import Ecto.Changeset
 

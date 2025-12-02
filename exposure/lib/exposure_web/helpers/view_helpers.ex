@@ -1,9 +1,9 @@
 defmodule ExposureWeb.ViewHelpers do
   @moduledoc """
-  View helper functions for formatting dates and displaying gallery data.
+  View helper functions for formatting dates and displaying data.
   """
 
-  alias Exposure.Gallery.Place
+  alias Exposure.Place
 
   @doc """
   Formats a date string for display.

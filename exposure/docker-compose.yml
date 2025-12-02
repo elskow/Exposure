@@ -1,0 +1,30 @@
+services:
+  exposure:
+    build: .
+    ports:
+      - "4000:4000"
+    environment:
+      - PHX_HOST=localhost
+      - PORT=4000
+      - SECRET_KEY_BASE=${SECRET_KEY_BASE}
+      - DATABASE_PATH=/app/data/exposure.db
+      - ADMIN_USERS=${ADMIN_USERS}
+      # Optional: Enable malware scanning with ClamAV
+      # - MALWARE_SCANNING_ENABLED=true
+      # - CLAMAV_SERVER=clamav
+      # - CLAMAV_PORT=3310
+    volumes:
+      # Persist database and uploaded images
+      - exposure_data:/app/data
+      - exposure_images:/app/priv/static/images/places
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  exposure_data:
+  exposure_images:

@@ -4,7 +4,7 @@ defmodule Exposure.Services.Authentication do
   """
 
   alias Exposure.Repo
-  alias Exposure.Gallery.AdminUser
+  alias Exposure.AdminUser
 
   import Ecto.Query
 

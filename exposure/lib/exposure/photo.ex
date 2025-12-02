@@ -1,4 +1,4 @@
-defmodule Exposure.Gallery.Photo do
+defmodule Exposure.Photo do
   use Ecto.Schema
   import Ecto.Changeset
 
@@ -10,7 +10,7 @@ defmodule Exposure.Gallery.Photo do
     field(:width, :integer)
     field(:height, :integer)
 
-    belongs_to(:place, Exposure.Gallery.Place)
+    belongs_to(:place, Exposure.Place)
 
     timestamps(type: :utc_datetime)
   end
