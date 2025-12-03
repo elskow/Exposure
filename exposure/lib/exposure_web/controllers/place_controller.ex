@@ -93,9 +93,7 @@ defmodule ExposureWeb.PlaceController do
               next_photo_file_name: next_photo && next_photo.file_name
             }
 
-            conn
-            |> put_root_layout(false)
-            |> render(:detail, photo: photo_view)
+            render(conn, :detail, photo: photo_view)
         end
     end
   end

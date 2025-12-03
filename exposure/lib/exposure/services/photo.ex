@@ -10,6 +10,7 @@ defmodule Exposure.Services.Photo do
   alias Exposure.Repo
   alias Exposure.{Place, Photo}
   alias Exposure.Services.{FileValidation, PathValidation, ImageProcessing, SlugGenerator}
+  alias Exposure.Workers.ThumbnailWorker
 
   @doc """
   Uploads photos to a place.
@@ -244,28 +245,53 @@ defmodule Exposure.Services.Photo do
         {:error, msg}
 
       {:ok, photos_dir} ->
-        valid_files = Enum.filter(files, fn f -> File.stat!(f.path).size > 0 end)
-
-        {uploaded_count, _errors} =
-          valid_files
-          |> Enum.reduce({0, []}, fn file, {count, errors} ->
-            case process_and_save_photo(file, photos_dir, place.id) do
-              :ok -> {count + 1, errors}
-              {:error, msg} -> {count, [msg | errors]}
+        # Filter valid files, handling potential stat errors gracefully
+        # Track why files were filtered out for better error messages
+        {valid_files, filtered_count} =
+          Enum.reduce(files, {[], 0}, fn f, {valid, filtered} ->
+            case File.stat(f.path) do
+              {:ok, %{size: size}} when size > 0 -> {[f | valid], filtered}
+              _ -> {valid, filtered + 1}
             end
           end)
 
-        if uploaded_count > 0 do
-          Logger.info("Successfully uploaded #{uploaded_count} photos to placeId #{place.id}")
-          {:ok, uploaded_count}
+        valid_files = Enum.reverse(valid_files)
+
+        if valid_files == [] do
+          if filtered_count > 0 do
+            {:error, "All #{filtered_count} file(s) were unavailable (upload may have timed out)"}
+          else
+            {:error, "No valid files to upload"}
+          end
         else
-          {:error, "Failed to upload any photos"}
+          {uploaded_count, errors} =
+            valid_files
+            |> Enum.reduce({0, []}, fn file, {count, errs} ->
+              case process_and_save_photo(file, photos_dir, place.id) do
+                :ok -> {count + 1, errs}
+                {:error, msg} -> {count, [msg | errs]}
+              end
+            end)
+
+          cond do
+            uploaded_count > 0 ->
+              Logger.info("Successfully uploaded #{uploaded_count} photos to placeId #{place.id}")
+
+              {:ok, uploaded_count}
+
+            filtered_count > 0 ->
+              {:error,
+               "Failed to upload any photos. #{filtered_count} file(s) were unavailable, #{length(errors)} failed processing."}
+
+            true ->
+              {:error, "Failed to upload any photos: #{Enum.join(Enum.take(errors, 3), "; ")}"}
+          end
         end
     end
   end
 
   # Main entry point for processing a single photo upload.
-  # Separates file I/O from database operations for proper transaction handling.
+  # Copies file to disk, reads dimensions, inserts to DB, then queues thumbnail job.
   defp process_and_save_photo(
          %Plug.Upload{path: path, filename: original_filename},
          photos_dir,
@@ -281,20 +307,32 @@ defmodule Exposure.Services.Photo do
     file_name = "#{uuid}#{extension}"
     file_path = Path.join(photos_dir, file_name)
 
-    # Step 1: Process file (copy + thumbnails) OUTSIDE of any transaction
-    case process_file_to_disk(path, file_path, file_name, photos_dir) do
+    # Step 1: Copy file to disk and read dimensions (NO thumbnail generation)
+    case copy_file_and_read_dimensions(path, file_path) do
       {:ok, dimensions} ->
         # Step 2: Insert to database with retry logic for race conditions
         case insert_photo_with_retry(place_id, file_name, dimensions, photos_dir) do
-          {:ok, photo_num} ->
-            Logger.info(
-              "Saved photo #{photo_num} for placeId #{place_id}: #{file_name} (#{dimensions.width}x#{dimensions.height})"
-            )
+          {:ok, photo_id, photo_num} ->
+            # Step 3: Queue thumbnail generation job
+            case queue_thumbnail_job(photo_id, place_id, file_name) do
+              {:ok, _job} ->
+                Logger.info(
+                  "Saved photo #{photo_num} for placeId #{place_id}: #{file_name} (#{dimensions.width}x#{dimensions.height}) - thumbnail job queued"
+                )
 
-            :ok
+                :ok
+
+              {:error, reason} ->
+                # Job queue failed but photo is saved - log warning, don't fail upload
+                Logger.warning(
+                  "Photo saved but thumbnail job failed to queue for #{file_name}: #{inspect(reason)}"
+                )
+
+                :ok
+            end
 
           {:error, reason} ->
-            # Clean up files if DB insert failed
+            # Clean up file if DB insert failed
             cleanup_file(file_path, file_name, photos_dir)
             Logger.error("Database save failed for #{original_filename}: #{reason}")
             {:error, "Database error for #{original_filename}"}
@@ -306,49 +344,92 @@ defmodule Exposure.Services.Photo do
     end
   end
 
-  # Process file to disk: copy and generate thumbnails.
-  # This is done outside of any database transaction.
-  # Thumbnails are generated asynchronously for faster response times.
-  defp process_file_to_disk(source_path, dest_path, file_name, photos_dir) do
+  # Copy file to disk and read dimensions using Image library.
+  # Does NOT generate thumbnails - that's handled by the background job.
+  # Uses File.read/write instead of File.cp to ensure the entire file is read
+  # before the Plug temp file can be cleaned up.
+  defp copy_file_and_read_dimensions(source_path, dest_path) do
     try do
-      # Copy file to destination
-      File.cp!(source_path, dest_path)
+      # Read the entire file into memory first - this ensures we have all the data
+      # before Plug potentially cleans up the temp file
+      case File.read(source_path) do
+        {:error, :enoent} ->
+          {:error, "Source file no longer exists (upload may have timed out)"}
 
-      # Generate thumbnails asynchronously - returns immediately with dimensions
-      case ImageProcessing.generate_thumbnails_async(dest_path, file_name, photos_dir) do
-        {:ok, %{width: width, height: height}} ->
-          {:ok, %{width: width, height: height}}
+        {:error, reason} ->
+          {:error, "Cannot read source file: #{inspect(reason)}"}
 
-        {:error, msg} ->
-          cleanup_file(dest_path, file_name, photos_dir)
-          {:error, "Thumbnails failed: #{msg}"}
+        {:ok, ""} ->
+          {:error, "Source file is empty"}
+
+        {:ok, content} ->
+          source_size = byte_size(content)
+
+          # Write the content to destination
+          case File.write(dest_path, content) do
+            :ok ->
+              # Verify the write succeeded completely
+              case File.stat(dest_path) do
+                {:ok, %{size: ^source_size}} ->
+                  # Read dimensions from the copied file
+                  read_image_dimensions(dest_path)
+
+                {:ok, %{size: actual_size}} ->
+                  File.rm(dest_path)
+
+                  {:error,
+                   "File write incomplete: expected #{source_size} bytes, got #{actual_size}"}
+
+                {:error, reason} ->
+                  File.rm(dest_path)
+                  {:error, "Failed to verify written file: #{inspect(reason)}"}
+              end
+
+            {:error, :enospc} ->
+              {:error, "Disk full - cannot save photo"}
+
+            {:error, reason} ->
+              {:error, "Failed to write file: #{inspect(reason)}"}
+          end
       end
     rescue
       e ->
-        cleanup_file(dest_path, file_name, photos_dir)
+        if File.exists?(dest_path), do: File.rm(dest_path)
         {:error, inspect(e)}
     end
   end
 
+  # Read image dimensions using the Image library
+  defp read_image_dimensions(file_path) do
+    case Image.open(file_path, access: :sequential) do
+      {:ok, image} ->
+        {width, height, _} = Image.shape(image)
+        {:ok, %{width: width, height: height}}
+
+      {:error, reason} ->
+        File.rm(file_path)
+        {:error, "Failed to read image: #{inspect(reason)}"}
+    end
+  end
+
+  # Queue thumbnail generation job via Oban
+  defp queue_thumbnail_job(photo_id, place_id, file_name) do
+    %{photo_id: photo_id, place_id: place_id, file_name: file_name}
+    |> ThumbnailWorker.new()
+    |> Oban.insert()
+  end
+
   # Insert photo record with retry logic to handle concurrent uploads.
   # Uses optimistic locking: try to insert, retry with new photo_num on conflict.
+  # Returns {:ok, photo_id, photo_num} on success.
   @max_insert_retries 5
-  defp insert_photo_with_retry(place_id, file_name, dimensions, photos_dir, attempt \\ 1) do
-    # Generate a unique slug for this photo
-    slug =
-      SlugGenerator.generate_random_unique(fn slug ->
-        Photo
-        |> where([p], p.place_id == ^place_id and p.slug == ^slug)
-        |> Repo.exists?()
-      end)
-
-    # Use a raw SQL approach with INSERT ... SELECT to atomically get next photo_num
-    # This prevents race conditions at the database level
-    result = insert_photo_atomic(place_id, file_name, slug, dimensions)
+  defp insert_photo_with_retry(place_id, file_name, dimensions, _photos_dir, attempt \\ 1) do
+    # Slug generation and insert are both inside the transaction to avoid race conditions
+    result = insert_photo_atomic(place_id, file_name, dimensions)
 
     case result do
-      {:ok, photo_num} ->
-        {:ok, photo_num}
+      {:ok, photo_id, photo_num} ->
+        {:ok, photo_id, photo_num}
 
       {:error, :constraint_violation} when attempt < @max_insert_retries ->
         # Unique constraint violation - another concurrent request got there first
@@ -360,7 +441,7 @@ defmodule Exposure.Services.Photo do
           "Retrying photo insert for placeId #{place_id}, attempt #{attempt + 1}/#{@max_insert_retries}"
         )
 
-        insert_photo_with_retry(place_id, file_name, dimensions, photos_dir, attempt + 1)
+        insert_photo_with_retry(place_id, file_name, dimensions, nil, attempt + 1)
 
       {:error, :constraint_violation} ->
         {:error,
@@ -372,48 +453,70 @@ defmodule Exposure.Services.Photo do
   end
 
   # Atomically insert a photo with the next available photo_num.
-  # Uses a subquery to get max(photo_num) + 1 in a single statement.
-  defp insert_photo_atomic(place_id, file_name, slug, %{width: width, height: height}) do
+  # Uses a transaction with IMMEDIATE mode to ensure atomicity in SQLite.
+  # Slug generation is inside the transaction to prevent race conditions.
+  # Returns {:ok, photo_id, photo_num} on success.
+  defp insert_photo_atomic(place_id, file_name, %{width: width, height: height}) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
 
-    # Use INSERT with a subquery to atomically determine the next photo_num
-    # This is atomic because SQLite executes the entire INSERT as one operation
-    sql = """
-    INSERT INTO photos (place_id, photo_num, slug, file_name, is_favorite, width, height, inserted_at, updated_at)
-    SELECT ?, COALESCE(MAX(photo_num), 0) + 1, ?, ?, 0, ?, ?, ?, ?
-    FROM photos
-    WHERE place_id = ?
-    """
+    # Wrap in a transaction - slug generation AND insert are both inside
+    # This prevents race conditions where two requests generate the same slug
+    Repo.transaction(fn ->
+      # Generate unique slug inside transaction
+      slug =
+        SlugGenerator.generate_random_unique(fn slug ->
+          Photo
+          |> where([p], p.place_id == ^place_id and p.slug == ^slug)
+          |> Repo.exists?()
+        end)
 
-    params = [place_id, slug, file_name, width, height, now, now, place_id]
+      # Get the next photo_num within the transaction
+      case Repo.query("SELECT COALESCE(MAX(photo_num), 0) + 1 FROM photos WHERE place_id = ?", [
+             place_id
+           ]) do
+        {:ok, %{rows: [[next_num]]}} ->
+          sql = """
+          INSERT INTO photos (place_id, photo_num, slug, file_name, is_favorite, width, height, inserted_at, updated_at)
+          VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+          """
 
-    case Repo.query(sql, params) do
-      {:ok, %{num_rows: 1}} ->
-        # Get the photo_num that was just inserted
-        case Repo.query("SELECT photo_num FROM photos WHERE place_id = ? AND slug = ?", [
-               place_id,
-               slug
-             ]) do
-          {:ok, %{rows: [[photo_num]]}} -> {:ok, photo_num}
-          # Fallback, shouldn't happen
-          _ -> {:ok, 0}
-        end
+          params = [place_id, next_num, slug, file_name, width, height, now, now]
 
-      {:ok, _} ->
-        {:error, :insert_failed}
+          case Repo.query(sql, params) do
+            {:ok, %{num_rows: 1}} ->
+              # SQLite: get the last inserted rowid
+              case Repo.query("SELECT last_insert_rowid()") do
+                {:ok, %{rows: [[photo_id]]}} ->
+                  {photo_id, next_num}
 
-      {:error, %{sqlite: %{code: :constraint}}} ->
-        {:error, :constraint_violation}
+                _ ->
+                  Repo.rollback(:insert_failed)
+              end
 
-      {:error, %Exqlite.Error{message: message}} when is_binary(message) ->
-        if String.contains?(message, "UNIQUE constraint") do
-          {:error, :constraint_violation}
-        else
-          {:error, message}
-        end
+            {:ok, _} ->
+              Repo.rollback(:insert_failed)
 
-      {:error, reason} ->
-        {:error, reason}
+            {:error, %Exqlite.Error{message: message}} when is_binary(message) ->
+              if String.contains?(message, "UNIQUE constraint") do
+                Repo.rollback(:constraint_violation)
+              else
+                Repo.rollback({:db_error, message})
+              end
+
+            {:error, reason} ->
+              Repo.rollback({:db_error, reason})
+          end
+
+        {:error, reason} ->
+          Repo.rollback({:db_error, reason})
+      end
+    end)
+    |> case do
+      {:ok, {photo_id, photo_num}} -> {:ok, photo_id, photo_num}
+      {:error, :constraint_violation} -> {:error, :constraint_violation}
+      {:error, :insert_failed} -> {:error, :insert_failed}
+      {:error, {:db_error, reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
     end
   end
 

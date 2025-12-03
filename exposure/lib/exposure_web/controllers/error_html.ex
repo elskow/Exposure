@@ -11,9 +11,19 @@ defmodule ExposureWeb.ErrorHTML do
 
   # Phoenix calls render("404.html", assigns), so we need to map to our embedded function
   def render("404.html", assigns) do
-    assigns
-    |> Map.put(:__changed__, nil)
-    |> __MODULE__."404"()
+    # Wrap in root layout to get CSS/styling
+    assigns =
+      assigns
+      |> Map.put(:__changed__, nil)
+      |> Map.put_new(:page_title, "Not Found")
+
+    content = __MODULE__."404"(assigns)
+
+    ExposureWeb.Layouts.root(%{
+      inner_content: content,
+      page_title: "Not Found",
+      conn: assigns[:conn]
+    })
   end
 
   # Fallback for error codes that don't have custom templates

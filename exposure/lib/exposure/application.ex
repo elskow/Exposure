@@ -13,12 +13,16 @@ defmodule Exposure.Application do
       Exposure.Repo,
       {DNSCluster, query: Application.get_env(:exposure, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Exposure.PubSub},
-      # Task supervisor for async operations (thumbnail generation, etc.)
+      # Task supervisor for async operations
       {Task.Supervisor, name: Exposure.TaskSupervisor},
+      # Oban job queue for background processing (thumbnails, etc.)
+      {Oban, Application.fetch_env!(:exposure, Oban)},
       # Rate limiter for login attempts
       Exposure.Services.RateLimiter,
       # Cache for places data
       Exposure.Services.PlacesCache,
+      # Periodic cleanup of orphaned files
+      Exposure.Services.OrphanCleanup,
       # Start to serve requests, typically the last entry
       ExposureWeb.Endpoint
     ]

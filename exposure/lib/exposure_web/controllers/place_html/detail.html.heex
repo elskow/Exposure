@@ -1,32 +1,21 @@
 <style>
-  /* Photo container responsive sizing */
-  .photo-container {
-    max-height: 75vh;
-    max-width: min(95vw, 85vw);
+  .photo-img {
+    max-height: calc(100dvh - 200px);
+    max-width: 90vw;
     width: auto;
     height: auto;
-  }
-  @media (min-width: 768px) {
-    .photo-container {
-      max-width: 85vw;
-    }
+    object-fit: contain;
+    display: block;
   }
 
-  /* Progressive image loading */
-  .photo-placeholder {
-    filter: blur(10px);
-    transform: scale(1.02);
-  }
-  .photo-main {
-    opacity: 0;
-    position: absolute;
-    top: 0;
-    left: 0;
-  }
-  .photo-main.loaded {
-    opacity: 1;
+  /* Progressive loading styles */
+  .photo-container {
     position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
+
   .loading-spinner {
     position: absolute;
     top: 50%;
@@ -48,16 +37,20 @@
   }
 </style>
 
-<%!-- Preload images --%>
+<%!-- Preload current image --%>
 <link rel="preload" href={"/images/places/#{@photo.place_id}/#{@photo.file_name}"} as="image" />
+
+<%!-- Prefetch adjacent medium thumbnails for fast navigation --%>
 <%= if @photo.next_photo_file_name do %>
-  <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{@photo.next_photo_file_name}"} as="image" />
+  <% next_name = Path.rootname(@photo.next_photo_file_name) %>
+  <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{next_name}-medium.webp"} as="image" />
 <% end %>
 <%= if @photo.prev_photo_file_name do %>
-  <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{@photo.prev_photo_file_name}"} as="image" />
+  <% prev_name = Path.rootname(@photo.prev_photo_file_name) %>
+  <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{prev_name}-medium.webp"} as="image" />
 <% end %>
 
-<div class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden" role="application" aria-label="Photo viewer">
+<div class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden fixed inset-0 z-50" role="application" aria-label="Photo viewer">
 
   <%!-- Screen reader announcements --%>
   <div role="status" aria-live="polite" aria-atomic="true" class="sr-only" id="photo-announcement">
@@ -115,36 +108,27 @@
     </nav>
   </header>
 
-  <div id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative w-full h-full overflow-hidden" role="img" tabindex="-1">
+  <div id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative overflow-hidden" role="img" tabindex="-1">
     <%
       name_without_ext = Path.rootname(@photo.file_name)
       medium_file_name = "#{name_without_ext}-medium.webp"
-      # Calculate aspect ratio style if dimensions are available
-      aspect_style = if @photo.width && @photo.height do
-        "aspect-ratio: #{@photo.width} / #{@photo.height};"
-      else
-        ""
-      end
+      full_src = "/images/places/#{@photo.place_id}/#{@photo.file_name}"
+      medium_src = "/images/places/#{@photo.place_id}/#{medium_file_name}"
     %>
-    <figure class="photo-container" style={aspect_style}>
-      <%!-- Loading spinner --%>
-      <div class="loading-spinner" id="loadingSpinner">
+    <figure class="photo-container">
+      <%!-- Loading spinner (for full image loading) --%>
+      <div class="loading-spinner hidden" id="loadingSpinner">
         <div class="spinner"></div>
       </div>
 
-      <%!-- Blurred placeholder (medium thumbnail) --%>
-      <img src={"/images/places/#{@photo.place_id}/#{medium_file_name}"}
-           alt=""
-           aria-hidden="true"
-           class="photo-placeholder max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
-           id="photoPlaceholder"
-           onerror="this.style.display='none';" />
-
-      <%!-- Full resolution image --%>
-      <img data-src={"/images/places/#{@photo.place_id}/#{@photo.file_name}"}
+      <%!-- Single image: starts with medium, swaps to full when loaded --%>
+      <img src={medium_src}
+           data-full-src={full_src}
            alt={"#{@photo.place_name} - Photo #{@photo.photo_num} of #{@photo.total_photos} taken in #{@photo.location}, #{@photo.country} during #{@photo.trip_dates}"}
-           class="photo-main max-h-[75vh] w-auto max-w-[95vw] md:max-w-[85vw] object-contain shadow-2xl block"
-           id="photoMain" />
+           class="photo-img shadow-2xl"
+           id="photoImage"
+           onload="this.dataset.mediumLoaded = 'true';"
+           onerror={"this.onerror=null; this.src='#{full_src}'; document.getElementById('loadingSpinner').classList.add('hidden');"} />
     </figure>
   </div>
 
@@ -247,49 +231,51 @@
       }
     }
 
-    // Preload adjacent images
+    // Preload adjacent images (medium thumbnails only for faster navigation)
     function preloadAdjacentImages() {
       <%= if @photo.prev_photo_file_name do %>
       var prevImg = new Image();
-      prevImg.src = '/images/places/<%= @photo.place_id %>/<%= @photo.prev_photo_file_name %>';
+      var prevName = '<%= Path.rootname(@photo.prev_photo_file_name) %>';
+      prevImg.src = '/images/places/<%= @photo.place_id %>/' + prevName + '-medium.webp';
       <% end %>
 
       <%= if @photo.next_photo_file_name do %>
       var nextImg = new Image();
-      nextImg.src = '/images/places/<%= @photo.place_id %>/<%= @photo.next_photo_file_name %>';
+      var nextName = '<%= Path.rootname(@photo.next_photo_file_name) %>';
+      nextImg.src = '/images/places/<%= @photo.place_id %>/' + nextName + '-medium.webp';
       <% end %>
     }
 
-    // Progressive image loading
+    // Progressive image loading - swap src from medium to full
     function loadFullImage() {
-      var mainImg = document.getElementById('photoMain');
-      var placeholder = document.getElementById('photoPlaceholder');
+      var img = document.getElementById('photoImage');
       var spinner = document.getElementById('loadingSpinner');
-      var fullSrc = mainImg.dataset.src;
+      var fullSrc = img.dataset.fullSrc;
 
       if (!fullSrc) return;
 
+      // Check if full image is already cached (instant load)
       var loader = new Image();
+      var loadStarted = false;
+
+      // Show spinner only if loading takes more than 100ms
+      var spinnerTimeout = setTimeout(function() {
+        if (spinner && loadStarted) spinner.classList.remove('hidden');
+      }, 100);
 
       loader.onload = function() {
-        mainImg.src = fullSrc;
-        mainImg.classList.add('loaded');
-
-        setTimeout(function() {
-          if (placeholder) placeholder.classList.add('hidden');
-          if (spinner) spinner.classList.add('hidden');
-        }, 100);
+        clearTimeout(spinnerTimeout);
+        img.src = fullSrc;
+        if (spinner) spinner.classList.add('hidden');
       };
 
       loader.onerror = function() {
+        clearTimeout(spinnerTimeout);
+        // If full image fails, keep showing the medium
         if (spinner) spinner.classList.add('hidden');
-        if (placeholder) {
-          placeholder.classList.remove('photo-placeholder');
-          placeholder.style.filter = 'none';
-          placeholder.style.transform = 'none';
-        }
       };
 
+      loadStarted = true;
       loader.src = fullSrc;
     }
 

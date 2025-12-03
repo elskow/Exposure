@@ -73,7 +73,9 @@ defmodule Exposure.MixProject do
       # OIDC authentication
       {:openid_connect, "~> 1.0"},
       # New Relic APM agent
-      {:new_relic_agent, "~> 1.0"}
+      {:new_relic_agent, "~> 1.0"},
+      # Job queue for background processing
+      {:oban, "~> 2.20"}
     ]
   end
 

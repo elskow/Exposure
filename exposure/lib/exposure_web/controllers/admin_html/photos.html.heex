@@ -13,14 +13,14 @@
   .photo-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 0.75rem;
+    gap: 1rem;
     position: relative;
   }
   
   @media (min-width: 480px) {
     .photo-grid {
       grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
+      gap: 1.25rem;
     }
   }
   
@@ -40,10 +40,9 @@
     background: #F3F4F6;
     border: 1px solid #E5E7EB;
     cursor: grab;
-    touch-action: none;
-    transition: transform 0.2s ease, 
-                opacity 0.2s ease,
-                box-shadow 0.2s ease;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
   
   .photo-item:hover {
@@ -54,42 +53,33 @@
     cursor: grabbing;
   }
 
-  /* The "Placeholder Ghost" in the grid - where item will drop */
+  /* Placeholder in grid where item will be dropped */
   .photo-item.sortable-ghost {
-    opacity: 0.3;
-    background: #F3F4F6;
-    border: 2px dashed #D1D5DB;
-    transform: scale(0.97);
+    opacity: 0.4;
+    background: #E5E7EB;
+    border: 2px dashed #9CA3AF;
   }
   
-  /* Hide the image inside the placeholder */
   .photo-item.sortable-ghost img,
   .photo-item.sortable-ghost .photo-overlay,
   .photo-item.sortable-ghost > div {
     opacity: 0 !important;
   }
 
-  /* --- The Floating Drag Ghost (Follows Cursor) --- */
-  .drag-preview-card {
-    position: fixed;
-    pointer-events: none;
-    z-index: 9999;
-    width: 130px;
-    height: 130px;
-    border-radius: 12px;
-    overflow: hidden;
+  /* The dragged element (follows cursor/finger) */
+  .photo-item.sortable-drag {
+    opacity: 1 !important;
     background: white;
-    box-shadow: 
-      0 20px 40px -8px rgba(0, 0, 0, 0.2),
-      0 0 0 1px rgba(0, 0, 0, 0.08);
-    transform: rotate(2deg);
-    opacity: 0.95;
+    box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.08);
+    transform: rotate(2deg) scale(1.02);
+    border-radius: 12px;
+    z-index: 9999;
   }
-
-  .drag-preview-card img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
+  
+  /* When body is in sorting mode, prevent iOS overscroll */
+  body.is-sorting {
+    overflow: hidden;
+    overscroll-behavior: none;
   }
 
   /* --- Overlay Actions --- */
@@ -258,7 +248,7 @@
                 name_without_ext = Path.rootname(photo.file_name)
                 small_file_name = "#{name_without_ext}-small.webp"
               %>
-              <div class="photo-item group" data-photo-num={photo.num} draggable="true">
+              <div class="photo-item group" data-photo-num={photo.num}>
                 <img src={"/images/places/#{@place.id}/#{small_file_name}"}
                      alt={"Photo #{photo.num}"}
                      class="w-full h-full object-cover"
@@ -314,11 +304,13 @@
 <script src="/vendor/filepond/filepond-plugin-file-validate-type.min.js"></script>
 <script src="/vendor/filepond/filepond-plugin-file-validate-size.min.js"></script>
 <script src="/vendor/filepond/filepond-plugin-image-validate-size.min.js"></script>
+<script src="/vendor/sortable.min.js"></script>
 
 <script>
   // Configuration
   const placeId = <%= @place.id %>;
   const token = document.getElementById('csrf_token').value;
+  let hasReordered = false;
   
   // Mobile uploader toggle
   function toggleUploader() {
@@ -387,100 +379,59 @@
     FilePond.create(mobileInputElement, pondConfig);
   }
 
-  // --- LIVE REORDERING LOGIC ---
-  let draggedItem = null;
-  let dragGhost = null;
-  let hasReordered = false;
-
-  function handleDragStart(e) {
-    draggedItem = this;
-    
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', this.dataset.photoNum);
-
-    // Create custom drag preview
-    const img = this.querySelector('img');
-    if (img) {
-      dragGhost = document.createElement('div');
-      dragGhost.className = 'drag-preview-card';
-      const ghostImg = img.cloneNode(true);
-      ghostImg.style.pointerEvents = 'none';
-      dragGhost.appendChild(ghostImg);
-      document.body.appendChild(dragGhost);
-      
-      // Position initially
-      dragGhost.style.left = (e.clientX - 65) + 'px';
-      dragGhost.style.top = (e.clientY - 65) + 'px';
-      
-      // Hide default drag image
-      const emptyImg = new Image();
-      emptyImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-      e.dataTransfer.setDragImage(emptyImg, 0, 0);
-    }
-
-    // Style the original element
-    setTimeout(() => {
-      this.classList.add('sortable-ghost');
-    }, 0);
-  }
-
-  function handleDrag(e) {
-    if (dragGhost && e.clientX !== 0 && e.clientY !== 0) {
-      dragGhost.style.left = (e.clientX - 65) + 'px';
-      dragGhost.style.top = (e.clientY - 65) + 'px';
-    }
-  }
-
-  function handleDragOver(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    const targetItem = e.target.closest('.photo-item');
-
-    if (targetItem && targetItem !== draggedItem) {
-      const grid = document.getElementById('photoGrid');
-      const children = Array.from(grid.children);
-      const draggedIndex = children.indexOf(draggedItem);
-      const targetIndex = children.indexOf(targetItem);
-
-      if (draggedIndex < targetIndex) {
-        grid.insertBefore(draggedItem, targetItem.nextSibling);
-      } else {
-        grid.insertBefore(draggedItem, targetItem);
-      }
-      
-      hasReordered = true;
-    }
-  }
-
-  function handleDragEnd(e) {
-    // Remove drag preview
-    if (dragGhost) {
-      dragGhost.remove();
-      dragGhost = null;
-    }
-
-    // Restore dragged item
-    if (draggedItem) {
-      draggedItem.classList.remove('sortable-ghost');
-      draggedItem = null;
-    }
-
-    // Show save actions
-    if (hasReordered) {
-      const actions = document.getElementById('reorderActions');
-      actions.style.display = 'flex';
-      actions.classList.add('visible');
-    }
-  }
-
-  // Attach Listeners
+  // --- SortableJS for drag-and-drop reordering ---
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.photo-item').forEach(item => {
-      item.addEventListener('dragstart', handleDragStart);
-      item.addEventListener('drag', handleDrag);
-      item.addEventListener('dragover', handleDragOver);
-      item.addEventListener('dragend', handleDragEnd);
+    const grid = document.getElementById('photoGrid');
+    if (!grid) return;
+    
+    const sortable = new Sortable(grid, {
+      animation: 150,
+      easing: 'ease',
+      
+      // Touch-specific: delay before drag starts (allows scrolling)
+      delay: 150,
+      delayOnTouchOnly: true,
+      
+      // Pixels of movement before drag is cancelled (prevents accidental drags)
+      touchStartThreshold: 5,
+      
+      // Use fallback mode for consistent behavior across all devices
+      forceFallback: true,
+      fallbackClass: 'sortable-drag',
+      fallbackOnBody: true,
+      fallbackTolerance: 3,
+      
+      // Ghost element (placeholder in original position)
+      ghostClass: 'sortable-ghost',
+      
+      // Auto-scroll when dragging near edges
+      scroll: true,
+      scrollSensitivity: 80,
+      scrollSpeed: 10,
+      bubbleScroll: true,
+      
+      // Filter out buttons so they remain clickable
+      filter: 'button',
+      preventOnFilter: false,
+      
+      // Callbacks
+      onStart: function(evt) {
+        document.body.classList.add('is-sorting');
+        // Haptic feedback on mobile
+        if (navigator.vibrate) navigator.vibrate(50);
+      },
+      
+      onEnd: function(evt) {
+        document.body.classList.remove('is-sorting');
+        
+        // Check if order changed
+        if (evt.oldIndex !== evt.newIndex) {
+          hasReordered = true;
+          const actions = document.getElementById('reorderActions');
+          actions.style.display = 'flex';
+          actions.classList.add('visible');
+        }
+      }
     });
   });
 

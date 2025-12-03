@@ -60,7 +60,10 @@ defmodule ExposureWeb.Endpoint do
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # Allow up to 100MB for multipart uploads (10MB * 10 files reasonable batch)
+    # This must be >= max_file_size * reasonable_batch_size
+    length: 100_000_000
   )
 
   plug(Plug.MethodOverride)

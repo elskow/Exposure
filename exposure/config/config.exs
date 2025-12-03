@@ -44,6 +44,25 @@ config :exposure, :malware_scanning,
   timeout_seconds: 30,
   max_file_size_for_scan_mb: 25
 
+# Orphan file cleanup configuration
+# Periodically removes files on disk without corresponding database records
+config :exposure, :orphan_cleanup,
+  enabled: true,
+  interval_hours: 6,
+  file_age_minutes: 30,
+  dry_run: false
+
+# Oban job queue configuration
+# Uses SQLite Lite engine for background job processing
+config :exposure, Oban,
+  engine: Oban.Engines.Lite,
+  repo: Exposure.Repo,
+  queues: [thumbnails: 2],
+  plugins: [
+    # Prune completed/cancelled/discarded jobs after 7 days
+    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+  ]
+
 # Configure the endpoint
 config :exposure, ExposureWeb.Endpoint,
   url: [host: "localhost"],
