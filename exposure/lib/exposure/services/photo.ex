@@ -211,7 +211,9 @@ defmodule Exposure.Services.Photo do
     end
   end
 
+  # ===========================================================================
   # Private functions
+  # ===========================================================================
 
   defp do_upload_photos(place, files) do
     case PathValidation.create_directory_safely(place.id) do
@@ -219,23 +221,12 @@ defmodule Exposure.Services.Photo do
         {:error, msg}
 
       {:ok, photos_dir} ->
-        # Get current max photo number
-        current_max =
-          Photo
-          |> where([p], p.place_id == ^place.id)
-          |> select([p], max(p.photo_num))
-          |> Repo.one() || 0
-
-        start_num = current_max + 1
-
-        # Process files
         valid_files = Enum.filter(files, fn f -> File.stat!(f.path).size > 0 end)
 
         {uploaded_count, _errors} =
           valid_files
-          |> Enum.with_index(start_num)
-          |> Enum.reduce({0, []}, fn {file, photo_num}, {count, errors} ->
-            case process_file(file, photos_dir, place.id, photo_num) do
+          |> Enum.reduce({0, []}, fn file, {count, errors} ->
+            case process_and_save_photo(file, photos_dir, place.id) do
               :ok -> {count + 1, errors}
               {:error, msg} -> {count, [msg | errors]}
             end
@@ -250,11 +241,12 @@ defmodule Exposure.Services.Photo do
     end
   end
 
-  defp process_file(
+  # Main entry point for processing a single photo upload.
+  # Separates file I/O from database operations for proper transaction handling.
+  defp process_and_save_photo(
          %Plug.Upload{path: path, filename: original_filename},
          photos_dir,
-         place_id,
-         photo_num
+         place_id
        ) do
     extension =
       original_filename
@@ -266,58 +258,138 @@ defmodule Exposure.Services.Photo do
     file_name = "#{uuid}#{extension}"
     file_path = Path.join(photos_dir, file_name)
 
+    # Step 1: Process file (copy + thumbnails) OUTSIDE of any transaction
+    case process_file_to_disk(path, file_path, file_name, photos_dir) do
+      {:ok, dimensions} ->
+        # Step 2: Insert to database with retry logic for race conditions
+        case insert_photo_with_retry(place_id, file_name, dimensions, photos_dir) do
+          {:ok, photo_num} ->
+            Logger.info(
+              "Saved photo #{photo_num} for placeId #{place_id}: #{file_name} (#{dimensions.width}x#{dimensions.height})"
+            )
+
+            :ok
+
+          {:error, reason} ->
+            # Clean up files if DB insert failed
+            cleanup_file(file_path, file_name, photos_dir)
+            Logger.error("Database save failed for #{original_filename}: #{reason}")
+            {:error, "Database error for #{original_filename}"}
+        end
+
+      {:error, reason} ->
+        Logger.error("File processing failed for #{original_filename}: #{reason}")
+        {:error, reason}
+    end
+  end
+
+  # Process file to disk: copy and generate thumbnails.
+  # This is done outside of any database transaction.
+  defp process_file_to_disk(source_path, dest_path, file_name, photos_dir) do
     try do
       # Copy file to destination
-      File.cp!(path, file_path)
+      File.cp!(source_path, dest_path)
 
-      # Generate thumbnails - now returns {:ok, %{width: w, height: h}} on success
-      case ImageProcessing.generate_thumbnails(file_path, file_name, photos_dir) do
+      # Generate thumbnails
+      case ImageProcessing.generate_thumbnails(dest_path, file_name, photos_dir) do
         {:ok, %{width: width, height: height}} ->
-          # Save to database with dimensions
-          slug =
-            SlugGenerator.generate_random_unique(fn slug ->
-              Photo
-              |> where([p], p.place_id == ^place_id and p.slug == ^slug)
-              |> Repo.exists?()
-            end)
-
-          case %Photo{}
-               |> Photo.changeset(%{
-                 place_id: place_id,
-                 photo_num: photo_num,
-                 slug: slug,
-                 file_name: file_name,
-                 is_favorite: false,
-                 width: width,
-                 height: height
-               })
-               |> Repo.insert() do
-            {:ok, _photo} ->
-              Logger.info(
-                "Saved photo #{photo_num} for placeId #{place_id}: #{file_name} (#{width}x#{height})"
-              )
-
-              :ok
-
-            {:error, changeset} ->
-              cleanup_file(file_path, file_name, photos_dir)
-
-              Logger.error(
-                "Database save failed for #{original_filename}: #{inspect(changeset.errors)}"
-              )
-
-              {:error, "Database error for #{original_filename}"}
-          end
+          {:ok, %{width: width, height: height}}
 
         {:error, msg} ->
-          cleanup_file(file_path, file_name, photos_dir)
+          cleanup_file(dest_path, file_name, photos_dir)
           {:error, "Thumbnails failed: #{msg}"}
       end
     rescue
       e ->
-        cleanup_file(file_path, file_name, photos_dir)
-        Logger.error("File processing failed for #{original_filename}: #{inspect(e)}")
+        cleanup_file(dest_path, file_name, photos_dir)
         {:error, inspect(e)}
+    end
+  end
+
+  # Insert photo record with retry logic to handle concurrent uploads.
+  # Uses optimistic locking: try to insert, retry with new photo_num on conflict.
+  @max_insert_retries 5
+  defp insert_photo_with_retry(place_id, file_name, dimensions, photos_dir, attempt \\ 1) do
+    # Generate a unique slug for this photo
+    slug =
+      SlugGenerator.generate_random_unique(fn slug ->
+        Photo
+        |> where([p], p.place_id == ^place_id and p.slug == ^slug)
+        |> Repo.exists?()
+      end)
+
+    # Use a raw SQL approach with INSERT ... SELECT to atomically get next photo_num
+    # This prevents race conditions at the database level
+    result = insert_photo_atomic(place_id, file_name, slug, dimensions)
+
+    case result do
+      {:ok, photo_num} ->
+        {:ok, photo_num}
+
+      {:error, :constraint_violation} when attempt < @max_insert_retries ->
+        # Unique constraint violation - another concurrent request got there first
+        # Wait a bit with jitter and retry
+        jitter = :rand.uniform(50) + attempt * 20
+        :timer.sleep(jitter)
+
+        Logger.warning(
+          "Retrying photo insert for placeId #{place_id}, attempt #{attempt + 1}/#{@max_insert_retries}"
+        )
+
+        insert_photo_with_retry(place_id, file_name, dimensions, photos_dir, attempt + 1)
+
+      {:error, :constraint_violation} ->
+        {:error,
+         "Failed to insert after #{@max_insert_retries} attempts due to concurrent uploads"}
+
+      {:error, reason} ->
+        {:error, inspect(reason)}
+    end
+  end
+
+  # Atomically insert a photo with the next available photo_num.
+  # Uses a subquery to get max(photo_num) + 1 in a single statement.
+  defp insert_photo_atomic(place_id, file_name, slug, %{width: width, height: height}) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    # Use INSERT with a subquery to atomically determine the next photo_num
+    # This is atomic because SQLite executes the entire INSERT as one operation
+    sql = """
+    INSERT INTO photos (place_id, photo_num, slug, file_name, is_favorite, width, height, inserted_at, updated_at)
+    SELECT ?, COALESCE(MAX(photo_num), 0) + 1, ?, ?, 0, ?, ?, ?, ?
+    FROM photos
+    WHERE place_id = ?
+    """
+
+    params = [place_id, slug, file_name, width, height, now, now, place_id]
+
+    case Repo.query(sql, params) do
+      {:ok, %{num_rows: 1}} ->
+        # Get the photo_num that was just inserted
+        case Repo.query("SELECT photo_num FROM photos WHERE place_id = ? AND slug = ?", [
+               place_id,
+               slug
+             ]) do
+          {:ok, %{rows: [[photo_num]]}} -> {:ok, photo_num}
+          # Fallback, shouldn't happen
+          _ -> {:ok, 0}
+        end
+
+      {:ok, _} ->
+        {:error, :insert_failed}
+
+      {:error, %{sqlite: %{code: :constraint}}} ->
+        {:error, :constraint_violation}
+
+      {:error, %Exqlite.Error{message: message}} when is_binary(message) ->
+        if String.contains?(message, "UNIQUE constraint") do
+          {:error, :constraint_violation}
+        else
+          {:error, message}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
