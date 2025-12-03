@@ -88,11 +88,6 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
-# Disable OpenTelemetry in development
-config :opentelemetry,
-  traces_exporter: :none,
-  span_processor: :otel_simple_processor
-
-config :opentelemetry_exporter,
-  otlp_protocol: :http_protobuf,
-  otlp_endpoint: "http://localhost:4318"
+# Disable New Relic in development
+config :new_relic_agent,
+  license_key: nil

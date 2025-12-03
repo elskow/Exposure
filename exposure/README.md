@@ -37,26 +37,28 @@ Ready to run in production? Please [check our deployment guides](https://hexdocs
 | `OIDC_ALLOWED_EMAILS` | Comma-separated allowed emails |
 | `OIDC_ALLOWED_DOMAINS` | Comma-separated allowed email domains |
 
-### OpenTelemetry / New Relic (Optional)
+### New Relic APM (Optional)
 
-Tracing is disabled by default. To enable export to New Relic:
+New Relic monitoring is disabled by default. To enable:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OTEL_ENABLED` | Set to `true` to enable OTEL export | `false` |
-| `NEW_RELIC_LICENSE_KEY` | Your New Relic ingest license key | - |
-| `NEW_RELIC_REGION` | `us` or `eu` | `us` |
-| `OTEL_SAMPLE_RATE` | Trace sampling rate (0.0-1.0) | `0.1` (10%) |
-
-**Note:** The default 10% sampling rate is recommended for New Relic's free tier to avoid exceeding data limits. Adjust `OTEL_SAMPLE_RATE` based on your traffic and New Relic plan.
+| `NEW_RELIC_LICENSE_KEY` | Your New Relic license key | - |
+| `NEW_RELIC_APP_NAME` | Application name in New Relic dashboard | `Exposure` |
+| `NEW_RELIC_LOGS_IN_CONTEXT` | Log shipping mode: `direct`, `forwarder`, or `disabled` | `direct` |
 
 Example:
 ```bash
-export OTEL_ENABLED=true
-export NEW_RELIC_LICENSE_KEY=your-ingest-license-key
-export NEW_RELIC_REGION=us
-export OTEL_SAMPLE_RATE=0.1
+export NEW_RELIC_LICENSE_KEY=your-license-key
+export NEW_RELIC_APP_NAME="Exposure Production"
 ```
+
+**Features enabled automatically:**
+- Transaction tracing (Phoenix requests)
+- Database query monitoring (Ecto)
+- Error tracking
+- BEAM VM metrics
+- Logs in Context (correlated logs with traces)
 
 ## Learn more
 

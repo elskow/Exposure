@@ -4,12 +4,10 @@ defmodule Exposure.Application do
   @moduledoc false
 
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
-    # Setup OpenTelemetry instrumentations before starting supervision tree
-    setup_opentelemetry()
-
     children = [
       ExposureWeb.Telemetry,
       Exposure.Repo,
@@ -54,16 +52,5 @@ defmodule Exposure.Application do
       Process.sleep(100)
       Exposure.Services.AdminSync.sync()
     end)
-  end
-
-  defp setup_opentelemetry do
-    # Setup Phoenix instrumentation
-    OpentelemetryPhoenix.setup(adapter: :bandit)
-
-    # Setup Ecto instrumentation
-    OpentelemetryEcto.setup([:exposure, :repo])
-
-    # Setup Bandit instrumentation
-    OpentelemetryBandit.setup()
   end
 end
