@@ -71,7 +71,14 @@ defmodule Exposure.MixProject do
       # QR code generation
       {:eqrcode, "~> 0.1.10"},
       # OIDC authentication
-      {:openid_connect, "~> 1.0"}
+      {:openid_connect, "~> 1.0"},
+      # OpenTelemetry for observability
+      {:opentelemetry, "~> 1.4"},
+      {:opentelemetry_api, "~> 1.3"},
+      {:opentelemetry_exporter, "~> 1.7"},
+      {:opentelemetry_phoenix, "~> 1.2"},
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:opentelemetry_bandit, "~> 0.1"}
     ]
   end
 

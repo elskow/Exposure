@@ -242,6 +242,68 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
+  # =============================================================================
+  # OpenTelemetry / New Relic Configuration
+  # =============================================================================
+  # Set OTEL_ENABLED=true to enable OpenTelemetry export to New Relic
+  # Required: NEW_RELIC_LICENSE_KEY - Your New Relic ingest license key
+  # Optional: NEW_RELIC_REGION - "us" (default) or "eu"
+  # Optional: OTEL_SAMPLE_RATE - Sampling rate 0.0-1.0 (default: 0.1 = 10%)
+  #
+  # Example:
+  #   OTEL_ENABLED=true
+  #   NEW_RELIC_LICENSE_KEY=your-license-key
+  #   NEW_RELIC_REGION=us
+  #   OTEL_SAMPLE_RATE=0.1
+
+  if System.get_env("OTEL_ENABLED") == "true" do
+    new_relic_key = System.get_env("NEW_RELIC_LICENSE_KEY")
+
+    if is_nil(new_relic_key) do
+      raise """
+      OpenTelemetry is enabled but NEW_RELIC_LICENSE_KEY is missing.
+      Please set the NEW_RELIC_LICENSE_KEY environment variable.
+      """
+    end
+
+    # New Relic OTLP endpoints
+    # US: https://otlp.nr-data.net
+    # EU: https://otlp.eu01.nr-data.net
+    region = System.get_env("NEW_RELIC_REGION", "us")
+
+    otlp_endpoint =
+      case region do
+        "eu" -> "https://otlp.eu01.nr-data.net"
+        _ -> "https://otlp.nr-data.net"
+      end
+
+    # Sampling rate to reduce data volume (default 10% for free tier)
+    sample_rate =
+      case System.get_env("OTEL_SAMPLE_RATE") do
+        nil -> 0.1
+        rate -> String.to_float(rate)
+      end
+
+    config :opentelemetry,
+      span_processor: :otel_batch_processor,
+      traces_exporter: :otlp,
+      # Use trace_id ratio sampler to reduce volume
+      sampler: {:otel_sampler_trace_id_ratio_based, sample_rate}
+
+    config :opentelemetry_exporter,
+      otlp_protocol: :http_protobuf,
+      otlp_endpoint: otlp_endpoint,
+      otlp_headers: [
+        {"api-key", new_relic_key}
+      ],
+      otlp_compression: :gzip
+  else
+    # Disable OTEL export in production if not configured
+    config :opentelemetry,
+      traces_exporter: :none,
+      span_processor: :otel_simple_processor
+  end
+
   # ## SSL Support
   #
   # To get SSL working, you will need to add the `https` key
