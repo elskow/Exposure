@@ -74,7 +74,9 @@ defmodule Exposure.Services.Photo do
 
   @doc """
   Reorders photos for a place.
-  Uses a single bulk UPDATE with CASE statement for efficiency.
+  Uses a two-step UPDATE to avoid unique constraint violations:
+  1. Set all photo_nums to negative (temporary)
+  2. Set to final positive values
   """
   def reorder_photos(place_id, new_order) when is_list(new_order) do
     photo_count =
@@ -98,30 +100,51 @@ defmodule Exposure.Services.Photo do
 
       now = DateTime.utc_now()
 
-      # Build CASE clause: CASE photo_num WHEN old1 THEN new1 WHEN old2 THEN new2 ... END
-      {case_fragments, params} =
-        validated_order
-        |> Enum.with_index(1)
-        |> Enum.reduce({[], []}, fn {old_num, new_num}, {fragments, params} ->
-          {["WHEN ? THEN ?" | fragments], [new_num, old_num | params]}
-        end)
+      # Use a transaction with two-step update to avoid unique constraint violations
+      # Step 1: Set all to negative values (old_num -> -new_num)
+      # Step 2: Set all to positive final values (-new_num -> new_num)
+      Repo.transaction(fn ->
+        # Step 1: Build CASE for old_num -> -new_num
+        {case_fragments_1, params_1} =
+          validated_order
+          |> Enum.with_index(1)
+          |> Enum.reduce({[], []}, fn {old_num, new_num}, {fragments, params} ->
+            # old_num becomes -new_num (negative to avoid conflicts)
+            {["WHEN ? THEN ?" | fragments], [-new_num, old_num | params]}
+          end)
 
-      case_sql = "CASE photo_num #{Enum.join(Enum.reverse(case_fragments), " ")} END"
+        case_sql_1 = "CASE photo_num #{Enum.join(Enum.reverse(case_fragments_1), " ")} END"
+        in_placeholders = Enum.map_join(1..length(validated_order), ", ", fn _ -> "?" end)
 
-      # Build placeholders for IN clause
-      in_placeholders = Enum.map_join(1..length(validated_order), ", ", fn _ -> "?" end)
+        sql_1 = """
+        UPDATE photos
+        SET photo_num = #{case_sql_1},
+            updated_at = ?
+        WHERE place_id = ? AND photo_num IN (#{in_placeholders})
+        """
 
-      sql = """
-      UPDATE photos
-      SET photo_num = #{case_sql},
-          updated_at = ?
-      WHERE place_id = ? AND photo_num IN (#{in_placeholders})
-      """
+        all_params_1 = Enum.reverse(params_1) ++ [now, place_id | validated_order]
 
-      # Parameters: [case params (reversed)..., now, place_id, photo_nums...]
-      all_params = Enum.reverse(params) ++ [now, place_id | validated_order]
+        case Repo.query(sql_1, all_params_1) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback({:step1_failed, reason})
+        end
 
-      case Repo.query(sql, all_params) do
+        # Step 2: Convert negative to positive (-new_num -> new_num)
+        # Now update WHERE photo_num < 0
+        sql_2 = """
+        UPDATE photos
+        SET photo_num = -photo_num,
+            updated_at = ?
+        WHERE place_id = ? AND photo_num < 0
+        """
+
+        case Repo.query(sql_2, [now, place_id]) do
+          {:ok, _} -> :ok
+          {:error, reason} -> Repo.rollback({:step2_failed, reason})
+        end
+      end)
+      |> case do
         {:ok, _} ->
           Logger.info("Reordered photos for placeId #{place_id}")
           true
@@ -285,13 +308,14 @@ defmodule Exposure.Services.Photo do
 
   # Process file to disk: copy and generate thumbnails.
   # This is done outside of any database transaction.
+  # Thumbnails are generated asynchronously for faster response times.
   defp process_file_to_disk(source_path, dest_path, file_name, photos_dir) do
     try do
       # Copy file to destination
       File.cp!(source_path, dest_path)
 
-      # Generate thumbnails
-      case ImageProcessing.generate_thumbnails(dest_path, file_name, photos_dir) do
+      # Generate thumbnails asynchronously - returns immediately with dimensions
+      case ImageProcessing.generate_thumbnails_async(dest_path, file_name, photos_dir) do
         {:ok, %{width: width, height: height}} ->
           {:ok, %{width: width, height: height}}
 

@@ -12,8 +12,12 @@ defmodule Exposure.Application do
       Exposure.Repo,
       {DNSCluster, query: Application.get_env(:exposure, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Exposure.PubSub},
+      # Task supervisor for async operations (thumbnail generation, etc.)
+      {Task.Supervisor, name: Exposure.TaskSupervisor},
       # Rate limiter for login attempts
       Exposure.Services.RateLimiter,
+      # Cache for places data
+      Exposure.Services.PlacesCache,
       # Start to serve requests, typically the last entry
       ExposureWeb.Endpoint
     ]
@@ -22,6 +26,9 @@ defmodule Exposure.Application do
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Exposure.Supervisor]
     result = Supervisor.start_link(children, opts)
+
+    # Initialize persistent_term config cache
+    Exposure.Services.FileValidation.init_config()
 
     # Sync admin users after supervision tree is started
     sync_admin_users()

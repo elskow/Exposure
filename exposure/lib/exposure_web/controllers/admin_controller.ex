@@ -41,9 +41,7 @@ defmodule ExposureWeb.AdminController do
         }
       end)
 
-    conn
-    |> put_root_layout(false)
-    |> render(:index,
+    render(conn, :index,
       total_places: length(places),
       total_photos: total_photos,
       total_favorites: total_favorites,
@@ -66,9 +64,7 @@ defmodule ExposureWeb.AdminController do
       if OIDC.enabled?() and not OIDC.local_auth_enabled?() and is_nil(has_error) do
         redirect(conn, to: ~p"/admin/auth/oidc")
       else
-        conn
-        |> put_root_layout(false)
-        |> render(:login,
+        render(conn, :login,
           error: has_error,
           username: nil,
           oidc_enabled: OIDC.enabled?(),
@@ -83,7 +79,6 @@ defmodule ExposureWeb.AdminController do
     # Check if local auth is enabled
     unless OIDC.local_auth_enabled?() do
       conn
-      |> put_root_layout(false)
       |> render(:login,
         error: "Local authentication is disabled",
         username: nil,
@@ -98,7 +93,6 @@ defmodule ExposureWeb.AdminController do
       case RateLimiter.check_rate(username) do
         {:error, seconds_remaining} ->
           conn
-          |> put_root_layout(false)
           |> render(:login,
             error: "Too many login attempts. Please try again in #{seconds_remaining} seconds.",
             username: username,
@@ -124,7 +118,6 @@ defmodule ExposureWeb.AdminController do
               RateLimiter.record_failure(username)
 
               conn
-              |> put_root_layout(false)
               |> render(:login,
                 error: msg,
                 username: username,
@@ -210,9 +203,7 @@ defmodule ExposureWeb.AdminController do
   # =============================================================================
 
   def create(conn, _params) do
-    conn
-    |> put_root_layout(false)
-    |> render(:create, changeset: nil, errors: [])
+    render(conn, :create, changeset: nil, errors: [])
   end
 
   def do_create(conn, %{"place" => place_params}) do
@@ -224,9 +215,7 @@ defmodule ExposureWeb.AdminController do
 
     case InputValidation.validate_place_form(name, location, country, start_date, end_date) do
       {:error, errors} ->
-        conn
-        |> put_root_layout(false)
-        |> render(:create, changeset: nil, errors: errors)
+        render(conn, :create, changeset: nil, errors: errors)
 
       {:ok, {valid_name, valid_location, valid_country, valid_start_date, valid_end_date}} ->
         attrs = %{
@@ -239,11 +228,11 @@ defmodule ExposureWeb.AdminController do
 
         case Exposure.create_place(attrs) do
           {:ok, place} ->
+            Exposure.invalidate_places_cache()
             redirect(conn, to: ~p"/admin/edit/#{place.id}")
 
           {:error, changeset} ->
             conn
-            |> put_root_layout(false)
             |> render(:create, changeset: changeset, errors: [])
         end
     end
@@ -252,21 +241,17 @@ defmodule ExposureWeb.AdminController do
   def edit(conn, %{"id" => id}) do
     with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
          place when not is_nil(place) <- Exposure.get_place(valid_id) do
-      conn
-      |> put_root_layout(false)
-      |> render(:edit, place: place, errors: [])
+      render(conn, :edit, place: place, errors: [])
     else
       {:error, _msg} ->
         conn
         |> put_status(:bad_request)
-        |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
 
       nil ->
         conn
         |> put_status(:not_found)
-        |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
     end
@@ -290,9 +275,7 @@ defmodule ExposureWeb.AdminController do
              end_date
            ) do
         {:error, errors} ->
-          conn
-          |> put_root_layout(false)
-          |> render(:edit, place: place, errors: errors)
+          render(conn, :edit, place: place, errors: errors)
 
         {:ok, {valid_name, valid_location, valid_country, valid_start_date, valid_end_date}} ->
           attrs = %{
@@ -305,11 +288,11 @@ defmodule ExposureWeb.AdminController do
 
           case Exposure.update_place(place, attrs) do
             {:ok, _} ->
+              Exposure.invalidate_places_cache()
               redirect(conn, to: ~p"/admin")
 
             {:error, _changeset} ->
               conn
-              |> put_root_layout(false)
               |> render(:edit, place: place, errors: ["Failed to update place"])
           end
       end
@@ -322,7 +305,6 @@ defmodule ExposureWeb.AdminController do
       nil ->
         conn
         |> put_status(:not_found)
-        |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
     end
@@ -332,6 +314,7 @@ defmodule ExposureWeb.AdminController do
     with {:ok, valid_id} <- safe_parse_integer(id, "Place ID"),
          {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID") do
       if Photo.delete_place_with_photos(valid_id) do
+        Exposure.invalidate_places_cache()
         json(conn, %{success: true, message: "Place deleted successfully"})
       else
         conn
@@ -375,6 +358,7 @@ defmodule ExposureWeb.AdminController do
 
         {:ok, validated_order} ->
           Exposure.reorder_places(validated_order)
+          Exposure.invalidate_places_cache()
           json(conn, %{success: true, message: "Places reordered successfully"})
       end
     end
@@ -399,9 +383,7 @@ defmodule ExposureWeb.AdminController do
           }
         end)
 
-      conn
-      |> put_root_layout(false)
-      |> render(:photos,
+      render(conn, :photos,
         place: %{
           id: place.id,
           name: place.name,
@@ -415,14 +397,12 @@ defmodule ExposureWeb.AdminController do
       {:error, _msg} ->
         conn
         |> put_status(:bad_request)
-        |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
 
       nil ->
         conn
         |> put_status(:not_found)
-        |> put_root_layout(false)
         |> put_view(html: ExposureWeb.ErrorHTML)
         |> render(:"404")
     end
@@ -440,6 +420,7 @@ defmodule ExposureWeb.AdminController do
       else
         case Photo.upload_photos(valid_id, file_list) do
           {:ok, count} ->
+            Exposure.invalidate_places_cache()
             json(conn, %{success: true, message: "Uploaded #{count} photo(s)", count: count})
 
           {:error, msg} ->
@@ -462,6 +443,7 @@ defmodule ExposureWeb.AdminController do
          {:ok, valid_place_id} <- InputValidation.validate_id(valid_place_id, "Place ID"),
          {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.delete_photo(valid_place_id, valid_photo_num) do
+        Exposure.invalidate_places_cache()
         json(conn, %{success: true, message: "Photo deleted successfully"})
       else
         conn
@@ -535,6 +517,7 @@ defmodule ExposureWeb.AdminController do
          {:ok, valid_place_id} <- InputValidation.validate_id(valid_place_id, "Place ID"),
          {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.set_favorite(valid_place_id, valid_photo_num, is_favorite) do
+        Exposure.invalidate_places_cache()
         message = if is_favorite, do: "Photo set as favorite", else: "Favorite removed"
         json(conn, %{success: true, message: message})
       else
@@ -563,7 +546,6 @@ defmodule ExposureWeb.AdminController do
         qr_code_base64 = Base.encode64(qr_code_bytes)
 
         conn
-        |> put_root_layout(false)
         |> render(:totp_setup, totp_secret: secret, qr_code: qr_code_base64)
 
       {:error, msg} ->

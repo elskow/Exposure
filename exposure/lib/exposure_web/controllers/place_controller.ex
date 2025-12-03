@@ -47,7 +47,8 @@ defmodule ExposureWeb.PlaceController do
         "name" => name,
         "photo" => photo_slug
       }) do
-    case Exposure.get_place_by_slugs(country, location, name) do
+    # First get the place without preloading all photos
+    case Exposure.get_place_by_slugs_without_photos(country, location, name) do
       nil ->
         conn
         |> put_status(:not_found)
@@ -56,34 +57,16 @@ defmodule ExposureWeb.PlaceController do
         |> render(:"404")
 
       place ->
-        sorted_photos = Enum.sort_by(place.photos, & &1.photo_num)
-        current_photo = Enum.find(sorted_photos, fn p -> p.slug == photo_slug end)
-
-        case current_photo do
-          nil ->
+        # Get only the current photo and its neighbors (3 photos max instead of all)
+        case Exposure.get_photo_with_neighbors(place.id, photo_slug) do
+          {:error, :not_found} ->
             conn
             |> put_status(:not_found)
             |> put_root_layout(false)
             |> put_view(html: ExposureWeb.ErrorHTML)
             |> render(:"404")
 
-          photo ->
-            total_photos = length(sorted_photos)
-
-            prev_photo =
-              if photo.photo_num > 1 do
-                Enum.find(sorted_photos, fn p -> p.photo_num == photo.photo_num - 1 end)
-              else
-                nil
-              end
-
-            next_photo =
-              if photo.photo_num < total_photos do
-                Enum.find(sorted_photos, fn p -> p.photo_num == photo.photo_num + 1 end)
-              else
-                nil
-              end
-
+          {:ok, %{photo: photo, prev: prev_photo, next: next_photo, total: total_photos}} ->
             unique_id = "PH/#{Integer.to_string(photo.photo_num * 12345, 16)}"
 
             photo_view = %{

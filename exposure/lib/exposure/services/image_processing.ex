@@ -1,6 +1,7 @@
 defmodule Exposure.Services.ImageProcessing do
   @moduledoc """
   Image processing service for generating thumbnails.
+  Supports both synchronous and asynchronous thumbnail generation.
   """
 
   require Logger
@@ -21,11 +22,47 @@ defmodule Exposure.Services.ImageProcessing do
   end
 
   @doc """
-  Generates all thumbnail sizes for an image.
+  Generates all thumbnail sizes for an image asynchronously.
+  Returns {:ok, %{width: w, height: h}} immediately after reading dimensions.
+  Thumbnails are generated in the background via Task.Supervisor.
+  """
+  def generate_thumbnails_async(original_path, base_filename, output_directory) do
+    if not File.exists?(original_path) do
+      {:error, "Original file not found"}
+    else
+      case Image.open(original_path, access: :sequential) do
+        {:ok, image} ->
+          {width, height, _} = Image.shape(image)
+
+          Logger.debug(
+            "Loaded image #{original_path} (#{width}x#{height}) - scheduling async thumbnail generation"
+          )
+
+          # Schedule thumbnail generation in the background
+          Task.Supervisor.start_child(Exposure.TaskSupervisor, fn ->
+            generate_thumbnails_sync(original_path, base_filename, output_directory)
+          end)
+
+          # Return dimensions immediately
+          {:ok, %{width: width, height: height}}
+
+        {:error, reason} ->
+          Logger.error("Error loading image #{original_path}: #{inspect(reason)}")
+          {:error, "Failed to load image: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  @doc """
+  Generates all thumbnail sizes for an image synchronously.
   Uses Image library (libvips-based) for processing.
   Returns {:ok, %{width: w, height: h}} on success with original dimensions.
   """
   def generate_thumbnails(original_path, base_filename, output_directory) do
+    generate_thumbnails_sync(original_path, base_filename, output_directory)
+  end
+
+  defp generate_thumbnails_sync(original_path, base_filename, output_directory) do
     if not File.exists?(original_path) do
       {:error, "Original file not found"}
     else

@@ -26,81 +26,84 @@ defmodule Exposure do
 
   @doc """
   Returns all places with photo count and favorite photo info.
-  Uses optimized queries instead of preloading all photos.
+  Uses ETS cache for improved performance (5 minute TTL).
   """
   def list_places_with_stats do
-    # Main query with photo count
-    places_with_counts =
-      from(p in Place,
-        left_join: ph in Photo,
-        on: ph.place_id == p.id,
-        group_by: p.id,
-        order_by: [asc: p.sort_order, desc: p.inserted_at],
-        select: {p, count(ph.id)}
-      )
-      |> Repo.all()
+    Exposure.Services.PlacesCache.get_places_with_stats()
+  end
 
-    # Get favorite photos in one query
-    place_ids = Enum.map(places_with_counts, fn {place, _} -> place.id end)
+  @doc """
+  Returns all places with photo count and favorite photo info (uncached).
+  Optimized to use a single query with subqueries for cover photos.
+  This is called by PlacesCache - do not call directly unless you need fresh data.
+  """
+  def list_places_with_stats_uncached do
+    # Single query that gets places with counts and cover photo info using subqueries
+    # This replaces 3-4 separate queries with just 1 database round-trip
+    sql = """
+    SELECT
+      p.id,
+      p.country_slug,
+      p.location_slug,
+      p.name_slug,
+      p.name,
+      p.location,
+      p.country,
+      p.start_date,
+      p.end_date,
+      p.sort_order,
+      p.favorites,
+      (SELECT COUNT(*) FROM photos ph WHERE ph.place_id = p.id) as photo_count,
+      COALESCE(
+        (SELECT ph.photo_num FROM photos ph WHERE ph.place_id = p.id AND ph.is_favorite = 1 LIMIT 1),
+        (SELECT ph.photo_num FROM photos ph WHERE ph.place_id = p.id ORDER BY ph.photo_num LIMIT 1)
+      ) as cover_photo_num,
+      COALESCE(
+        (SELECT ph.file_name FROM photos ph WHERE ph.place_id = p.id AND ph.is_favorite = 1 LIMIT 1),
+        (SELECT ph.file_name FROM photos ph WHERE ph.place_id = p.id ORDER BY ph.photo_num LIMIT 1)
+      ) as cover_photo_file_name
+    FROM places p
+    ORDER BY p.sort_order ASC, p.inserted_at DESC
+    """
 
-    favorite_photos =
-      from(ph in Photo,
-        where: ph.place_id in ^place_ids and ph.is_favorite == true,
-        select: {ph.place_id, %{photo_num: ph.photo_num, file_name: ph.file_name}}
-      )
-      |> Repo.all()
-      |> Map.new()
+    case Repo.query(sql, []) do
+      {:ok, %{rows: rows, columns: columns}} ->
+        columns = Enum.map(columns, &String.to_atom/1)
 
-    # Get first photos as fallback (for places without a favorite)
-    # SQLite doesn't support DISTINCT ON, so we use a subquery to get min photo_num per place
-    first_photo_nums =
-      from(ph in Photo,
-        where: ph.place_id in ^place_ids,
-        group_by: ph.place_id,
-        select: {ph.place_id, min(ph.photo_num)}
-      )
-      |> Repo.all()
-      |> Map.new()
+        Enum.map(rows, fn row ->
+          data = Enum.zip(columns, row) |> Map.new()
 
-    first_photos =
-      if map_size(first_photo_nums) > 0 do
-        # Build conditions to fetch the actual photo records
-        conditions =
-          Enum.map(first_photo_nums, fn {place_id, photo_num} ->
-            dynamic([ph], ph.place_id == ^place_id and ph.photo_num == ^photo_num)
-          end)
-          |> Enum.reduce(fn cond, acc -> dynamic([ph], ^acc or ^cond) end)
+          %{
+            id: data.id,
+            country_slug: data.country_slug,
+            location_slug: data.location_slug,
+            name_slug: data.name_slug,
+            name: data.name,
+            location: data.location,
+            country: data.country,
+            start_date: data.start_date,
+            end_date: data.end_date,
+            sort_order: data.sort_order,
+            favorites: data.favorites,
+            photo_count: data.photo_count || 0,
+            favorite_photo_num: data.cover_photo_num,
+            favorite_photo_file_name: data.cover_photo_file_name
+          }
+        end)
 
-        from(ph in Photo,
-          where: ^conditions,
-          select: {ph.place_id, %{photo_num: ph.photo_num, file_name: ph.file_name}}
-        )
-        |> Repo.all()
-        |> Map.new()
-      else
-        %{}
-      end
+      {:error, reason} ->
+        require Logger
+        Logger.error("Failed to fetch places with stats: #{inspect(reason)}")
+        []
+    end
+  end
 
-    # Combine results
-    Enum.map(places_with_counts, fn {place, photo_count} ->
-      favorite = Map.get(favorite_photos, place.id) || Map.get(first_photos, place.id)
-
-      %{
-        id: place.id,
-        country_slug: place.country_slug,
-        location_slug: place.location_slug,
-        name_slug: place.name_slug,
-        name: place.name,
-        location: place.location,
-        country: place.country,
-        start_date: place.start_date,
-        end_date: place.end_date,
-        sort_order: place.sort_order,
-        photo_count: photo_count,
-        favorite_photo_num: favorite && favorite.photo_num,
-        favorite_photo_file_name: favorite && favorite.file_name
-      }
-    end)
+  @doc """
+  Invalidates the places cache.
+  Call this after modifying places or photos.
+  """
+  def invalidate_places_cache do
+    Exposure.Services.PlacesCache.invalidate_places()
   end
 
   @doc """
@@ -118,8 +121,62 @@ defmodule Exposure do
       p.country_slug == ^country_slug and p.location_slug == ^location_slug and
         p.name_slug == ^name_slug
     )
-    |> preload(:photos)
+    |> preload([p], photos: ^from(ph in Photo, order_by: ph.photo_num))
     |> Repo.one()
+  end
+
+  @doc """
+  Gets a single place by hierarchical slugs without preloading photos.
+  Use this when you only need place metadata.
+  """
+  def get_place_by_slugs_without_photos(country_slug, location_slug, name_slug) do
+    Place
+    |> where(
+      [p],
+      p.country_slug == ^country_slug and p.location_slug == ^location_slug and
+        p.name_slug == ^name_slug
+    )
+    |> Repo.one()
+  end
+
+  @doc """
+  Gets a photo by place_id and slug, along with its prev/next neighbors.
+  Returns {:ok, %{photo: photo, prev: prev_photo, next: next_photo, total: count}} or {:error, :not_found}
+  This is optimized to query only 3 photos + count instead of all photos.
+  """
+  def get_photo_with_neighbors(place_id, photo_slug) do
+    # Get the current photo by slug
+    current_photo =
+      Photo
+      |> where([p], p.place_id == ^place_id and p.slug == ^photo_slug)
+      |> Repo.one()
+
+    case current_photo do
+      nil ->
+        {:error, :not_found}
+
+      photo ->
+        # Get prev and next photos in a single query
+        neighbors =
+          Photo
+          |> where([p], p.place_id == ^place_id)
+          |> where(
+            [p],
+            p.photo_num == ^(photo.photo_num - 1) or p.photo_num == ^(photo.photo_num + 1)
+          )
+          |> Repo.all()
+
+        prev_photo = Enum.find(neighbors, &(&1.photo_num == photo.photo_num - 1))
+        next_photo = Enum.find(neighbors, &(&1.photo_num == photo.photo_num + 1))
+
+        # Get total count
+        total =
+          Photo
+          |> where([p], p.place_id == ^place_id)
+          |> Repo.aggregate(:count)
+
+        {:ok, %{photo: photo, prev: prev_photo, next: next_photo, total: total}}
+    end
   end
 
   @doc """

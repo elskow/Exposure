@@ -15,6 +15,16 @@ defmodule ExposureWeb.Router do
     plug(:accepts, ["json"])
   end
 
+  pipeline :admin do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_root_layout, html: {ExposureWeb.Layouts, :admin})
+    plug(:protect_from_forgery)
+    plug(:put_secure_browser_headers)
+    plug(ExposureWeb.Plugs.SecurityHeaders)
+  end
+
   scope "/", ExposureWeb do
     pipe_through(:browser)
 
@@ -26,7 +36,7 @@ defmodule ExposureWeb.Router do
 
   # Admin routes
   scope "/admin", ExposureWeb do
-    pipe_through(:browser)
+    pipe_through(:admin)
 
     get("/", AdminController, :index)
     get("/login", AdminController, :login)

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <.live_title default="Admin - Exposure">
+      {assigns[:page_title]}
+    </.live_title>
+
+    <!-- Preload critical fonts -->
+    <link rel="preload" href="/fonts/inter/inter-400.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/fonts/dm-mono/dm-mono-400.ttf" as="font" type="font/ttf" crossorigin />
+
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+
+    <style>
+      :root {
+        --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+        --font-mono: 'DM Mono', monospace;
+      }
+
+      body {
+        font-family: var(--font-sans);
+      }
+
+      .font-mono {
+        font-family: var(--font-mono);
+      }
+    </style>
+  </head>
+  <body class="bg-gray-50 text-gray-900 min-h-screen selection:bg-black selection:text-white antialiased font-sans">
+    {@inner_content}
+  </body>
+</html>

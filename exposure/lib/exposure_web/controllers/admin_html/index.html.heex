@@ -1,215 +1,423 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard</title>
+<style>
+  /* --- Drag and Drop Styles --- */
+  .place-row { 
+    cursor: grab;
+    transition: all 0.2s ease;
+  }
+  .place-row:active { cursor: grabbing; }
+  
+  /* The placeholder in the list */
+  .place-row.dragging { 
+    opacity: 0.4;
+    background: #F3F4F6;
+    transform: scale(0.98);
+  }
+  
+  /* Drop target indicator */
+  .place-row.drag-over {
+    transform: translateY(4px);
+    box-shadow: 0 -2px 0 0 #3B82F6;
+  }
+  
+  .drag-handle { 
+    cursor: grab; 
+    opacity: 0; 
+    transition: opacity 0.15s ease;
+  }
+  .place-row:hover .drag-handle { opacity: 0.5; }
+  .place-row:active .drag-handle { opacity: 1; }
+  
+  /* Floating drag preview */
+  .drag-preview {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    padding: 12px 16px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 
+      0 20px 25px -5px rgba(0, 0, 0, 0.15), 
+      0 8px 10px -6px rgba(0, 0, 0, 0.1),
+      0 0 0 1px rgba(0, 0, 0, 0.05);
+    transform: rotate(2deg) scale(1.02);
+    max-width: 300px;
+    opacity: 0.95;
+  }
+  
+  .drag-preview .place-name {
+    font-weight: 600;
+    color: #111;
+    font-size: 14px;
+  }
+  
+  .drag-preview .place-location {
+    font-size: 12px;
+    color: #6B7280;
+    margin-top: 2px;
+  }
+  
+  /* Smooth row transitions when reordering */
+  #placesTable .place-row {
+    transition: transform 0.25s ease, 
+                opacity 0.2s ease,
+                background-color 0.15s ease;
+  }
+  
+  /* Animation for reorder actions appearing */
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  
+  #reorderActions.visible {
+    animation: slideIn 0.2s ease forwards;
+  }
+</style>
 
-  <!-- Preload critical fonts -->
-  <link rel="preload" href="/fonts/inter/inter-400.ttf" as="font" type="font/ttf" crossorigin />
-  <link rel="preload" href="/fonts/dm-mono/dm-mono-400.ttf" as="font" type="font/ttf" crossorigin />
-
-  <link rel="stylesheet" href="/assets/css/app.css" />
-  <style>
-    .place-row { cursor: grab; }
-    .place-row:active { cursor: grabbing; }
-    .place-row.dragging { opacity: 0.5; }
-    .drag-handle { cursor: grab; opacity: 0.3; transition: opacity 0.2s; }
-    .place-row:hover .drag-handle { opacity: 0.6; }
-  </style>
-</head>
-<body class="bg-white text-[#111] min-h-screen p-6 md:p-12 selection:bg-black selection:text-white antialiased">
-
+<div class="p-4 sm:p-6 md:p-12">
   <form id="reorderForm" style="display: none;">
     <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
   </form>
 
-  <div class="max-w-4xl mx-auto">
+  <div class="max-w-5xl mx-auto">
 
-    <header class="flex justify-between items-end border-b border-gray-100 pb-6 mb-8">
-      <div>
-        <h1 class="text-2xl font-medium tracking-tight text-black">Dashboard</h1>
-
-        <div class="flex gap-4 mt-2 text-[10px] text-gray-400 uppercase tracking-widest font-mono">
-          <span><%= @total_places %> Places</span>
-          <span><%= @total_photos %> Photos</span>
+    <header class="flex flex-col gap-4 mb-6 sm:mb-8">
+      <!-- Top row: Title + Logout -->
+      <div class="flex items-start justify-between">
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900">Dashboard</h1>
+          <div class="flex gap-2 sm:gap-3 mt-2 sm:mt-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-white border border-gray-200 text-gray-600 shadow-sm">
+              <%= @total_places %> Places
+            </span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-white border border-gray-200 text-gray-600 shadow-sm">
+              <%= @total_photos %> Photos
+            </span>
+          </div>
         </div>
-      </div>
-
-      <div class="flex items-center gap-6">
-        <div id="reorderActions" style="display: none;" class="flex gap-3">
-          <button type="button" onclick="cancelReorder()"
-                  class="px-4 py-2 text-[10px] uppercase tracking-widest font-mono text-gray-500 hover:text-gray-700 transition-colors">
-            Cancel
-          </button>
-          <button type="button" onclick="savePlaceOrder()"
-                  class="px-4 py-2 bg-green-600 text-white text-[10px] uppercase tracking-widest font-mono hover:bg-green-700 transition-colors rounded shadow-sm">
-            Save Order
-          </button>
-        </div>
-
-        <a href={~p"/admin/create"} class="inline-flex items-center px-4 py-2 bg-black text-white text-[10px] uppercase tracking-widest font-mono hover:bg-gray-800 transition-colors rounded shadow-sm">
-          + New Entry
-        </a>
 
         <form action={~p"/admin/logout"} method="post" class="inline">
           <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
-          <button type="submit" class="text-[10px] uppercase tracking-widest font-mono text-red-400 hover:text-red-600 transition-colors">
-            Logout
+          <button type="submit" class="text-xs font-medium text-gray-500 hover:text-red-600 transition-colors px-2 py-1">
+            Log out
           </button>
         </form>
       </div>
+
+      <!-- Bottom row: Actions -->
+      <div class="flex flex-wrap items-center gap-3">
+        <div id="reorderActions" style="display: none;" class="flex items-center gap-2 bg-yellow-50 border border-yellow-200 px-3 py-1.5 rounded-lg animate-pulse">
+          <span class="text-[10px] sm:text-xs text-yellow-700 font-medium">Changed</span>
+          <button type="button" onclick="cancelReorder()"
+                  class="text-[10px] sm:text-xs font-medium text-yellow-800 hover:text-yellow-900 underline decoration-yellow-800/30">
+            Reset
+          </button>
+          <div class="w-px h-3 bg-yellow-300"></div>
+          <button type="button" onclick="savePlaceOrder()"
+                  class="text-[10px] sm:text-xs font-bold text-yellow-800 hover:text-yellow-900">
+            Save
+          </button>
+        </div>
+
+        <a href={~p"/admin/create"} class="group inline-flex items-center gap-2 px-3 sm:px-4 py-2 bg-black text-white text-[10px] sm:text-xs font-medium uppercase tracking-wider hover:bg-gray-800 transition-all rounded-md shadow-sm hover:shadow-md">
+          <svg class="w-3 h-3 text-gray-400 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+          <span class="hidden xs:inline">New Entry</span>
+          <span class="xs:hidden">New</span>
+        </a>
+      </div>
     </header>
 
-    <div class="overflow-x-auto">
-      <table class="w-full text-left border-collapse">
-        <thead>
-          <tr class="text-[10px] text-gray-400 uppercase tracking-wider border-b border-gray-100 font-medium">
-            <th class="pb-3 font-medium w-8"></th>
-            <th class="pb-3 font-medium w-16">ID</th>
-            <th class="pb-3 font-medium">Name</th>
-            <th class="pb-3 font-medium hidden sm:table-cell">Location</th>
-            <th class="pb-3 font-medium text-right">Date</th>
-            <th class="pb-3 font-medium text-right w-24">Action</th>
-          </tr>
-        </thead>
-        <tbody id="placesTable" class="divide-y divide-gray-50">
-          <%= if @places != [] do %>
-            <%= for place <- @places do %>
-              <tr class="place-row group hover:bg-gray-50 transition-colors text-[13px]"
-                  data-place-id={place.id}
-                  draggable="true"
-                  ondragstart="handleDragStart(event)"
-                  ondragend="handleDragEnd(event)"
-                  ondragover="handleDragOver(event)"
-                  ondrop="handleDrop(event)">
-                <td class="py-4 drag-handle text-gray-300">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
-                    <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
-                  </svg>
-                </td>
+    <!-- Desktop Table View -->
+    <div class="hidden sm:block bg-white border border-gray-200 rounded-xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-gray-50/50 border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wider font-medium">
+              <th class="py-3 pl-4 w-10"></th>
+              <th class="py-3 px-4 font-mono">#ID</th>
+              <th class="py-3 px-4">Name</th>
+              <th class="py-3 px-4 hidden md:table-cell">Location</th>
+              <th class="py-3 px-4 text-right hidden lg:table-cell">Date</th>
+              <th class="py-3 pr-6 text-right w-24">Edit</th>
+            </tr>
+          </thead>
+          <tbody id="placesTable" class="divide-y divide-gray-100">
+            <%= if @places != [] do %>
+              <%= for place <- @places do %>
+                <tr class="place-row group transition-all duration-200 hover:bg-gray-50 text-sm"
+                    data-place-id={place.id}
+                    draggable="true"
+                    ondragstart="handleDragStart(event)"
+                    ondragend="handleDragEnd(event)"
+                    ondragover="handleDragOver(event)"
+                    ondrop="handleDrop(event)">
+                  
+                  <td class="py-4 pl-4 drag-handle cursor-grab active:cursor-grabbing text-gray-300 group-hover:text-gray-400 transition-colors opacity-0 group-hover:opacity-100">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/>
+                      <circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>
+                    </svg>
+                  </td>
 
-                <td class="py-4 text-gray-300 group-hover:text-gray-500 font-mono text-[11px]">
-                  <%= String.pad_leading(to_string(place.id), 2, "0") %>
-                </td>
+                  <td class="py-4 px-4">
+                    <span class="inline-flex items-center justify-center h-6 min-w-[24px] px-1.5 rounded bg-gray-100 border border-gray-200 text-gray-500 font-mono text-[10px]">
+                      <%= String.pad_leading(to_string(place.id), 2, "0") %>
+                    </span>
+                  </td>
 
-                <td class="py-4 font-medium text-gray-900">
-                  <%= place.name %>
-                </td>
+                  <td class="py-4 px-4">
+                    <span class="block font-medium text-gray-900 group-hover:text-black transition-colors">
+                      <%= place.name %>
+                    </span>
+                  </td>
 
-                <td class="py-4 text-gray-500 hidden sm:table-cell">
-                  <%= place.location %>, <%= place.country %>
-                </td>
+                  <td class="py-4 px-4 hidden md:table-cell">
+                    <div class="flex items-center gap-1.5 text-gray-500">
+                      <svg class="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                      <span class="truncate max-w-[200px]"><%= place.location %>, <%= place.country %></span>
+                    </div>
+                  </td>
 
-                <td class="py-4 text-right text-gray-400 font-mono text-[11px]">
-                  <%= place.trip_dates %>
-                </td>
+                  <td class="py-4 px-4 text-right hidden lg:table-cell">
+                    <span class="text-xs font-mono text-gray-400 group-hover:text-gray-600">
+                      <%= place.trip_dates %>
+                    </span>
+                  </td>
 
-                <td class="py-4 text-right">
-                  <a href={~p"/admin/edit/#{place.id}"} class="text-black text-[11px] font-medium hover:text-gray-500 underline underline-offset-4 decoration-gray-200 hover:decoration-gray-400 transition-all">
-                    Edit
-                  </a>
+                  <td class="py-4 pr-6 text-right">
+                    <a href={~p"/admin/edit/#{place.id}"} class="inline-flex items-center justify-center w-8 h-8 rounded-full hover:bg-white hover:border hover:border-gray-200 hover:shadow-sm text-gray-400 hover:text-black transition-all">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                    </a>
+                  </td>
+                </tr>
+              <% end %>
+            <% else %>
+              <tr>
+                <td colspan="6" class="py-16 text-center">
+                  <div class="flex flex-col items-center justify-center text-gray-400">
+                    <svg class="w-10 h-10 mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    <p class="text-sm">No entries yet.</p>
+                    <a href={~p"/admin/create"} class="mt-2 text-xs text-black underline underline-offset-2">Create your first entry</a>
+                  </div>
                 </td>
               </tr>
             <% end %>
-          <% else %>
-            <tr>
-              <td colspan="6" class="py-12 text-center text-gray-400 text-sm">
-                No entries found.
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Mobile Card View -->
+    <div class="sm:hidden space-y-3" id="placesTableMobile">
+      <%= if @places != [] do %>
+        <%= for place <- @places do %>
+          <div class="place-row-mobile bg-white border border-gray-200 rounded-xl p-4 shadow-sm"
+               data-place-id={place.id}>
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="inline-flex items-center justify-center h-5 px-1.5 rounded bg-gray-100 border border-gray-200 text-gray-500 font-mono text-[9px]">
+                    <%= String.pad_leading(to_string(place.id), 2, "0") %>
+                  </span>
+                  <span class="text-[10px] font-mono text-gray-400">
+                    <%= place.trip_dates %>
+                  </span>
+                </div>
+                <h3 class="font-medium text-gray-900 truncate"><%= place.name %></h3>
+                <div class="flex items-center gap-1 mt-1 text-xs text-gray-500">
+                  <svg class="w-3 h-3 text-gray-300 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                  <span class="truncate"><%= place.location %>, <%= place.country %></span>
+                </div>
+              </div>
+              <a href={~p"/admin/edit/#{place.id}"} class="flex-shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-50 border border-gray-200 text-gray-500 active:bg-gray-100">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+              </a>
+            </div>
+          </div>
+        <% end %>
+      <% else %>
+        <div class="bg-white border border-gray-200 rounded-xl p-8 text-center">
+          <div class="flex flex-col items-center justify-center text-gray-400">
+            <svg class="w-10 h-10 mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            <p class="text-sm">No entries yet.</p>
+            <a href={~p"/admin/create"} class="mt-2 text-xs text-black underline underline-offset-2">Create your first entry</a>
+          </div>
+        </div>
+      <% end %>
     </div>
   </div>
+</div>
 
-  <script>
-    let draggedRow = null;
-    let hasReordered = false;
-    let originalOrder = [];
+<script>
+  let draggedRow = null;
+  let dragPreview = null;
+  let hasReordered = false;
+  let originalOrder = [];
 
-    document.addEventListener('DOMContentLoaded', function() {
-      originalOrder = Array.from(document.querySelectorAll('.place-row')).map(el => el.dataset.placeId);
-    });
+  document.addEventListener('DOMContentLoaded', function() {
+    originalOrder = Array.from(document.querySelectorAll('.place-row')).map(el => el.dataset.placeId);
+  });
 
-    function handleDragStart(e) {
-      draggedRow = e.target.closest('.place-row');
+  function handleDragStart(e) {
+    draggedRow = e.target.closest('.place-row');
+    
+    // Set drag data
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedRow.dataset.placeId);
+    
+    // Create custom drag preview
+    const placeName = draggedRow.querySelector('td:nth-child(3) span').textContent.trim();
+    const placeLocation = draggedRow.querySelector('td:nth-child(4) span')?.textContent.trim() || '';
+    
+    dragPreview = document.createElement('div');
+    dragPreview.className = 'drag-preview';
+    dragPreview.innerHTML = `
+      <div class="place-name">${placeName}</div>
+      <div class="place-location">${placeLocation}</div>
+    `;
+    document.body.appendChild(dragPreview);
+    
+    // Hide default drag image
+    const emptyImg = new Image();
+    emptyImg.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    e.dataTransfer.setDragImage(emptyImg, 0, 0);
+    
+    // Style the source row after a tick
+    setTimeout(() => {
       draggedRow.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
+    }, 0);
+  }
+  
+  function handleDrag(e) {
+    // Move custom preview with cursor
+    if (dragPreview && e.clientX !== 0) {
+      dragPreview.style.left = (e.clientX + 15) + 'px';
+      dragPreview.style.top = (e.clientY + 15) + 'px';
     }
+  }
 
-    function handleDragEnd(e) {
-      if (draggedRow) {
-        draggedRow.classList.remove('dragging');
-        draggedRow = null;
+  function handleDragEnd(e) {
+    // Clean up preview
+    if (dragPreview) {
+      dragPreview.remove();
+      dragPreview = null;
+    }
+    
+    // Clean up dragged row styles
+    if (draggedRow) {
+      draggedRow.classList.remove('dragging');
+      draggedRow = null;
+    }
+    
+    // Clean up any drag-over styles
+    document.querySelectorAll('.place-row.drag-over').forEach(row => {
+      row.classList.remove('drag-over');
+    });
+    
+    // Show save actions if reordered
+    if (hasReordered) {
+      const actions = document.getElementById('reorderActions');
+      actions.style.display = 'flex';
+      actions.classList.add('visible');
+    }
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    const targetRow = e.target.closest('.place-row');
+    if (draggedRow && targetRow && draggedRow !== targetRow) {
+      const tbody = document.getElementById('placesTable');
+      const allRows = Array.from(tbody.querySelectorAll('.place-row'));
+      const draggedIndex = allRows.indexOf(draggedRow);
+      const targetIndex = allRows.indexOf(targetRow);
+
+      // Move the row in the DOM
+      if (draggedIndex < targetIndex) {
+        targetRow.parentNode.insertBefore(draggedRow, targetRow.nextSibling);
+      } else {
+        targetRow.parentNode.insertBefore(draggedRow, targetRow);
       }
-      if (hasReordered) {
-        document.getElementById('reorderActions').style.display = 'flex';
+      hasReordered = true;
+    }
+  }
+  
+  function handleDragEnter(e) {
+    const targetRow = e.target.closest('.place-row');
+    if (targetRow && targetRow !== draggedRow) {
+      targetRow.classList.add('drag-over');
+    }
+  }
+  
+  function handleDragLeave(e) {
+    const targetRow = e.target.closest('.place-row');
+    if (targetRow) {
+      targetRow.classList.remove('drag-over');
+    }
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    const targetRow = e.target.closest('.place-row');
+    if (targetRow) {
+      targetRow.classList.remove('drag-over');
+    }
+  }
+
+  function cancelReorder() {
+    location.reload();
+  }
+
+  async function savePlaceOrder() {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = 'Saving...';
+    btn.disabled = true;
+    
+    const placeRows = Array.from(document.querySelectorAll('.place-row'));
+    const newOrder = placeRows.map(el => parseInt(el.dataset.placeId));
+
+    try {
+      const formData = new FormData();
+      newOrder.forEach((id, index) => {
+        formData.append(`order[${index}]`, id);
+      });
+
+      const token = document.querySelector('input[name="_csrf_token"]').value;
+      formData.append('_csrf_token', token);
+
+      const response = await fetch('/admin/places/reorder', {
+        method: 'POST',
+        body: formData,
+        cache: 'no-store'
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        hasReordered = false;
+        document.getElementById('reorderActions').style.display = 'none';
+        window.location.href = window.location.pathname + '?t=' + Date.now();
+      } else {
+        alert('Failed to save order: ' + result.message);
+        btn.textContent = originalText;
+        btn.disabled = false;
       }
+    } catch (error) {
+      console.error('Reorder error:', error);
+      alert('Failed to save order. Please try again.');
+      btn.textContent = originalText;
+      btn.disabled = false;
     }
-
-    function handleDragOver(e) {
-      e.preventDefault();
-      const targetRow = e.target.closest('.place-row');
-      if (draggedRow && targetRow && draggedRow !== targetRow) {
-        const tbody = document.getElementById('placesTable');
-        const allRows = Array.from(tbody.querySelectorAll('.place-row'));
-        const draggedIndex = allRows.indexOf(draggedRow);
-        const targetIndex = allRows.indexOf(targetRow);
-
-        if (draggedIndex < targetIndex) {
-          targetRow.parentNode.insertBefore(draggedRow, targetRow.nextSibling);
-        } else {
-          targetRow.parentNode.insertBefore(draggedRow, targetRow);
-        }
-        hasReordered = true;
-      }
-    }
-
-    function handleDrop(e) {
-      e.preventDefault();
-    }
-
-    function cancelReorder() {
-      location.reload();
-    }
-
-    async function savePlaceOrder() {
-      const placeRows = Array.from(document.querySelectorAll('.place-row'));
-      const newOrder = placeRows.map(el => parseInt(el.dataset.placeId));
-
-      try {
-        const formData = new FormData();
-        newOrder.forEach((id, index) => {
-          formData.append(`order[${index}]`, id);
-        });
-
-        const token = document.querySelector('input[name="_csrf_token"]').value;
-        formData.append('_csrf_token', token);
-
-        const response = await fetch('/admin/places/reorder', {
-          method: 'POST',
-          body: formData,
-          cache: 'no-store'
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-          hasReordered = false;
-          document.getElementById('reorderActions').style.display = 'none';
-          window.location.href = window.location.pathname + '?t=' + Date.now();
-        } else {
-          alert('Failed to save order: ' + result.message);
-        }
-      } catch (error) {
-        console.error('Reorder error:', error);
-        alert('Failed to save order. Please try again.');
-      }
-    }
-  </script>
-
-</body>
-</html>
+  }
+  
+  // Attach additional listeners for better drag feedback
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.place-row').forEach(row => {
+      row.addEventListener('drag', handleDrag);
+      row.addEventListener('dragenter', handleDragEnter);
+      row.addEventListener('dragleave', handleDragLeave);
+    });
+  });
+</script>

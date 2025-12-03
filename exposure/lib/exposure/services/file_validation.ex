@@ -1,6 +1,7 @@
 defmodule Exposure.Services.FileValidation do
   @moduledoc """
   File validation service for secure file uploads.
+  Config is cached using :persistent_term for fast access.
   """
 
   require Logger
@@ -20,25 +21,40 @@ defmodule Exposure.Services.FileValidation do
   @webp_magic <<0x52, 0x49, 0x46, 0x46>>
 
   @doc """
+  Initializes the config cache using :persistent_term.
+  Should be called once at application startup.
+  """
+  def init_config do
+    file_upload_config = Application.get_env(:exposure, :file_upload) || []
+
+    config = %{
+      max_file_size_mb: file_upload_config[:max_file_size_mb] || @default_max_file_size_mb,
+      max_files_per_upload:
+        file_upload_config[:max_files_per_upload] || @default_max_files_per_upload,
+      max_image_width: file_upload_config[:max_image_width] || @default_max_image_width,
+      max_image_height: file_upload_config[:max_image_height] || @default_max_image_height,
+      max_image_pixels: file_upload_config[:max_image_pixels] || @default_max_image_pixels
+    }
+
+    :persistent_term.put({__MODULE__, :config}, config)
+    Logger.info("FileValidation config initialized: #{inspect(config)}")
+    :ok
+  end
+
+  @doc """
   Returns the configuration for file uploads.
+  Uses :persistent_term for fast access (no Application.get_env calls at runtime).
   """
   def config do
-    %{
-      max_file_size_mb:
-        Application.get_env(:exposure, :file_upload)[:max_file_size_mb] ||
-          @default_max_file_size_mb,
-      max_files_per_upload:
-        Application.get_env(:exposure, :file_upload)[:max_files_per_upload] ||
-          @default_max_files_per_upload,
-      max_image_width:
-        Application.get_env(:exposure, :file_upload)[:max_image_width] || @default_max_image_width,
-      max_image_height:
-        Application.get_env(:exposure, :file_upload)[:max_image_height] ||
-          @default_max_image_height,
-      max_image_pixels:
-        Application.get_env(:exposure, :file_upload)[:max_image_pixels] ||
-          @default_max_image_pixels
-    }
+    case :persistent_term.get({__MODULE__, :config}, :not_found) do
+      :not_found ->
+        # Fallback if not initialized (shouldn't happen in production)
+        init_config()
+        :persistent_term.get({__MODULE__, :config})
+
+      config ->
+        config
+    end
   end
 
   @doc """
