@@ -31,6 +31,8 @@ defmodule Exposure.Services.OrphanCleanup do
   @default_file_age_minutes 30
   # Thumbnail suffixes match ImageProcessing.get_suffix/1: -thumb, -small, -medium
   @thumbnail_suffixes ["-thumb", "-small", "-medium"]
+  # OG image suffix from OgImageGenerator
+  @og_suffix "-og"
 
   # ===========================================================================
   # Client API
@@ -250,17 +252,23 @@ defmodule Exposure.Services.OrphanCleanup do
       |> Repo.all()
       |> MapSet.new()
 
-    # Also build set of expected thumbnail names (using suffixes like -thumb.webp)
+    # Also build set of expected thumbnail names and OG images
     expected_files =
       Enum.reduce(db_file_names, db_file_names, fn file_name, acc ->
         name_without_ext = Path.rootname(file_name)
 
+        # Thumbnails: -thumb.webp, -small.webp, -medium.webp
         thumbnails =
           Enum.map(@thumbnail_suffixes, fn suffix ->
             "#{name_without_ext}#{suffix}.webp"
           end)
 
-        Enum.reduce(thumbnails, acc, &MapSet.put(&2, &1))
+        # OG image: -og.jpg
+        og_image = "#{name_without_ext}#{@og_suffix}.jpg"
+
+        acc
+        |> then(fn a -> Enum.reduce(thumbnails, a, &MapSet.put(&2, &1)) end)
+        |> MapSet.put(og_image)
       end)
 
     # List files in the directory

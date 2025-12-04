@@ -8,10 +8,21 @@ defmodule Exposure.Services.PathValidation do
 
   @doc """
   Returns the wwwroot (priv/static) path.
+
+  In production releases with Docker, images are mounted at /app/priv/static
+  rather than inside the release structure. Use STATIC_PATH env var to override.
   """
   def wwwroot_path do
-    Application.app_dir(:exposure, "priv/static")
-    |> Path.expand()
+    case System.get_env("STATIC_PATH") do
+      nil ->
+        # Default: use release app_dir (works for dev and standard releases)
+        Application.app_dir(:exposure, "priv/static")
+        |> Path.expand()
+
+      static_path ->
+        # Override: use configured path (for Docker with mounted volumes)
+        Path.expand(static_path)
+    end
   end
 
   @doc """

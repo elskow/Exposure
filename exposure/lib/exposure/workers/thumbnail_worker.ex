@@ -39,8 +39,8 @@ defmodule Exposure.Workers.ThumbnailWorker do
   import Ecto.Query
 
   alias Exposure.Repo
-  alias Exposure.Photo
-  alias Exposure.Services.{PathValidation, ImageProcessing}
+  alias Exposure.{Photo, Place}
+  alias Exposure.Services.{PathValidation, ImageProcessing, OgImageGenerator}
 
   @impl Oban.Worker
   def perform(%Oban.Job{
@@ -106,7 +106,8 @@ defmodule Exposure.Workers.ThumbnailWorker do
          file_path <- Path.join(photos_dir, file_name),
          :ok <- verify_source_file(file_path),
          {:ok, _dimensions} <-
-           ImageProcessing.generate_thumbnails(file_path, file_name, photos_dir) do
+           ImageProcessing.generate_thumbnails(file_path, file_name, photos_dir),
+         :ok <- generate_og_image(place_id, file_path, file_name, photos_dir) do
       :ok
     else
       {:error, :file_not_found} ->
@@ -117,6 +118,31 @@ defmodule Exposure.Workers.ThumbnailWorker do
 
       {:error, reason} ->
         {:error, inspect(reason)}
+    end
+  end
+
+  # Generate OG image with place info overlay
+  defp generate_og_image(place_id, file_path, file_name, photos_dir) do
+    case Repo.get(Place, place_id) do
+      nil ->
+        Logger.warning("ThumbnailWorker: Place #{place_id} not found, skipping OG image")
+        :ok
+
+      place ->
+        og_filename = OgImageGenerator.get_og_filename(file_name)
+        og_path = Path.join(photos_dir, og_filename)
+        location = "#{place.location}, #{place.country}"
+
+        case OgImageGenerator.generate(file_path, og_path, place.name, location) do
+          {:ok, _} ->
+            Logger.info("ThumbnailWorker: Generated OG image for #{file_name}")
+            :ok
+
+          {:error, reason} ->
+            # OG image generation failure is non-fatal - log and continue
+            Logger.warning("ThumbnailWorker: Failed to generate OG image: #{inspect(reason)}")
+            :ok
+        end
     end
   end
 

@@ -11,6 +11,11 @@ config :exposure,
   ecto_repos: [Exposure.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Site configuration for SEO
+config :exposure, :site,
+  name: "Exposure",
+  description: "A curated collection of travel photography"
+
 # Authentication configuration
 # In development, uses a single default admin.
 # In production, configure via ADMIN_USERS environment variable.

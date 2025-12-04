@@ -47,4 +47,31 @@ defmodule ExposureWeb.ViewHelpers do
   end
 
   def get_favorite_photo(_), do: nil
+
+  @doc """
+  Gets the base URL for the site (used for absolute URLs in OG tags, etc.)
+  """
+  def get_base_url do
+    case Application.get_env(:exposure, ExposureWeb.Endpoint)[:url] do
+      [host: host, port: 443, scheme: "https"] ->
+        "https://#{host}"
+
+      [host: host, port: port, scheme: scheme] ->
+        "#{scheme}://#{host}:#{port}"
+
+      [host: host] when host != "localhost" ->
+        "https://#{host}"
+
+      _ ->
+        # Fallback for dev
+        "http://localhost:4000"
+    end
+  end
+
+  @doc """
+  Builds an absolute URL from a path.
+  """
+  def absolute_url(path) do
+    "#{get_base_url()}#{path}"
+  end
 end

@@ -34,6 +34,12 @@ defmodule ExposureWeb.Router do
     get("/places/:country/:location/:name/:photo", PlaceController, :detail)
   end
 
+  # SEO routes (no layout needed)
+  scope "/", ExposureWeb do
+    get("/sitemap.xml", SitemapController, :sitemap)
+    get("/robots.txt", SitemapController, :robots)
+  end
+
   # Admin routes
   scope "/admin", ExposureWeb do
     pipe_through(:admin)

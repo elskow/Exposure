@@ -24,6 +24,18 @@ config :exposure, ExposureWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 # =============================================================================
+# Static Path Configuration (for Docker volume mounts)
+# =============================================================================
+# STATIC_PATH allows overriding where images are stored/served from.
+# In Docker with mounted volumes, set this to the mount point.
+# Example: STATIC_PATH=/app/priv/static
+#
+# If not set, defaults to the release's priv/static directory.
+if static_path = System.get_env("STATIC_PATH") do
+  config :exposure, :images_path, Path.join(static_path, "images/places")
+end
+
+# =============================================================================
 # Authentication Configuration
 # =============================================================================
 # AUTH_MODE can be: "local", "oidc", or "both" (default: "local")

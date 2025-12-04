@@ -302,4 +302,42 @@ defmodule Exposure do
   defdelegate format_date_for_display(iso_date), to: ViewHelpers
   defdelegate trip_dates_display(start_date, end_date), to: ViewHelpers
   defdelegate get_favorite_photo(place), to: ViewHelpers
+
+  # =============================================================================
+  # Sitemap
+  # =============================================================================
+
+  @doc """
+  Returns all places with their photo data for sitemap generation.
+  Includes updated_at timestamps for lastmod and file_name for image sitemap.
+  """
+  def list_places_with_photos_for_sitemap do
+    Place
+    |> order_by([p], asc: p.sort_order, desc: p.inserted_at)
+    |> preload([p],
+      photos:
+        ^from(ph in Photo,
+          select: %{
+            slug: ph.slug,
+            file_name: ph.file_name,
+            updated_at: ph.updated_at
+          },
+          order_by: ph.photo_num
+        )
+    )
+    |> Repo.all()
+    |> Enum.map(fn place ->
+      %{
+        id: place.id,
+        country_slug: place.country_slug,
+        location_slug: place.location_slug,
+        name_slug: place.name_slug,
+        name: place.name,
+        location: place.location,
+        country: place.country,
+        updated_at: place.updated_at,
+        photos: place.photos
+      }
+    end)
+  end
 end

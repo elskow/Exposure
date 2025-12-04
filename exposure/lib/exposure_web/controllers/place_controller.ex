@@ -1,5 +1,6 @@
 defmodule ExposureWeb.PlaceController do
   use ExposureWeb, :controller
+  alias ExposureWeb.ViewHelpers
 
   def index(conn, %{"country" => country, "location" => location, "name" => name}) do
     case Exposure.get_place_by_slugs(country, location, name) do
@@ -37,7 +38,71 @@ defmodule ExposureWeb.PlaceController do
           photos: photos
         }
 
-        render(conn, :index, place: place_detail)
+        # Find favorite photo for OG image (absolute URL required)
+        favorite_photo = Enum.find(photos, fn p -> p.is_favorite end) || List.first(photos)
+
+        og_image =
+          if favorite_photo do
+            base_name = Path.rootname(favorite_photo.file_name)
+            # Use OG image with text overlay if available, fallback to medium thumbnail
+            ViewHelpers.absolute_url("/images/places/#{place.id}/#{base_name}-og.jpg")
+          end
+
+        canonical_url = ViewHelpers.absolute_url("/places/#{country}/#{location}/#{name}")
+        home_url = ViewHelpers.absolute_url("/")
+
+        # JSON-LD: ImageGallery + BreadcrumbList
+        json_ld = [
+          %{
+            "@context" => "https://schema.org",
+            "@type" => "ImageGallery",
+            "name" => place.name,
+            "description" =>
+              "Photo gallery from #{place.name} in #{place.location}, #{place.country}",
+            "url" => canonical_url,
+            "numberOfItems" => length(photos),
+            "contentLocation" => %{
+              "@type" => "Place",
+              "name" => place.name,
+              "address" => %{
+                "@type" => "PostalAddress",
+                "addressLocality" => place.location,
+                "addressCountry" => place.country
+              }
+            }
+          },
+          %{
+            "@context" => "https://schema.org",
+            "@type" => "BreadcrumbList",
+            "itemListElement" => [
+              %{
+                "@type" => "ListItem",
+                "position" => 1,
+                "name" => "Home",
+                "item" => home_url
+              },
+              %{
+                "@type" => "ListItem",
+                "position" => 2,
+                "name" => "#{place.name}",
+                "item" => canonical_url
+              }
+            ]
+          }
+        ]
+
+        conn
+        |> assign(:page_title, "#{place.name} - #{place.location}, #{place.country}")
+        |> assign(
+          :meta_description,
+          "Photo gallery from #{place.name} in #{place.location}, #{place.country}. #{length(photos)} photos from #{Exposure.trip_dates_display(place.start_date, place.end_date)}."
+        )
+        |> assign(:og_image, og_image)
+        |> assign(:og_image_width, 1200)
+        |> assign(:og_image_height, 630)
+        |> assign(:canonical_url, canonical_url)
+        |> assign(:json_ld, json_ld)
+        |> render(:index, place: place_detail)
     end
   end
 
@@ -93,8 +158,94 @@ defmodule ExposureWeb.PlaceController do
               next_photo_file_name: next_photo && next_photo.file_name
             }
 
-            render(conn, :detail, photo: photo_view)
+            # OG image for photo detail (use OG image with text overlay)
+            base_name = Path.rootname(photo.file_name)
+
+            og_image =
+              ViewHelpers.absolute_url("/images/places/#{place.id}/#{base_name}-og.jpg")
+
+            full_image_url =
+              ViewHelpers.absolute_url("/images/places/#{place.id}/#{photo.file_name}")
+
+            canonical_url =
+              ViewHelpers.absolute_url("/places/#{country}/#{location}/#{name}/#{photo_slug}")
+
+            gallery_url = ViewHelpers.absolute_url("/places/#{country}/#{location}/#{name}")
+            home_url = ViewHelpers.absolute_url("/")
+
+            # OG image dimensions are fixed at 1200x630
+            og_width = 1200
+            og_height = 630
+
+            # JSON-LD: ImageObject + BreadcrumbList
+            json_ld = [
+              %{
+                "@context" => "https://schema.org",
+                "@type" => "ImageObject",
+                "name" => "Photo #{photo.photo_num} - #{place.name}",
+                "description" =>
+                  "Photo #{photo.photo_num} of #{total_photos} from #{place.name} in #{place.location}, #{place.country}",
+                "contentUrl" => full_image_url,
+                "thumbnailUrl" => og_image,
+                "url" => canonical_url,
+                "width" => photo.width,
+                "height" => photo.height,
+                "isPartOf" => %{
+                  "@type" => "ImageGallery",
+                  "name" => place.name,
+                  "url" => gallery_url
+                },
+                "contentLocation" => %{
+                  "@type" => "Place",
+                  "name" => place.name,
+                  "address" => %{
+                    "@type" => "PostalAddress",
+                    "addressLocality" => place.location,
+                    "addressCountry" => place.country
+                  }
+                }
+              },
+              %{
+                "@context" => "https://schema.org",
+                "@type" => "BreadcrumbList",
+                "itemListElement" => [
+                  %{
+                    "@type" => "ListItem",
+                    "position" => 1,
+                    "name" => "Home",
+                    "item" => home_url
+                  },
+                  %{
+                    "@type" => "ListItem",
+                    "position" => 2,
+                    "name" => "#{place.name}",
+                    "item" => gallery_url
+                  },
+                  %{
+                    "@type" => "ListItem",
+                    "position" => 3,
+                    "name" => "Photo #{photo.photo_num}",
+                    "item" => canonical_url
+                  }
+                ]
+              }
+            ]
+
+            conn
+            |> assign(:page_title, "Photo #{photo.photo_num} - #{place.name}, #{place.location}")
+            |> assign(
+              :meta_description,
+              "Photo #{photo.photo_num} of #{total_photos} from #{place.name} in #{place.location}, #{place.country}."
+            )
+            |> assign(:og_image, og_image)
+            |> assign(:og_image_width, og_width)
+            |> assign(:og_image_height, og_height)
+            |> assign(:og_type, "article")
+            |> assign(:canonical_url, canonical_url)
+            |> assign(:json_ld, json_ld)
+            |> render(:detail, photo: photo_view)
         end
     end
   end
+
 end
