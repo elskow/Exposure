@@ -8,11 +8,13 @@ defmodule Exposure.Workers.ThumbnailWorker do
   - Unique job constraint to prevent duplicate processing
   - Detailed error logging for debugging
   - Updates photo.thumbnail_status to track progress
+  - Trace ID propagation for distributed tracing
 
   ## Job Arguments
   - `photo_id`: The database ID of the photo
   - `place_id`: The place ID (used for file path)
   - `file_name`: The original file name (UUID-based)
+  - `trace_id`: Optional trace ID for request correlation
 
   ## Thumbnail Status
   - `pending`: Initial state when job is queued
@@ -22,7 +24,7 @@ defmodule Exposure.Workers.ThumbnailWorker do
 
   ## Usage
   ```elixir
-  %{photo_id: photo.id, place_id: place_id, file_name: file_name}
+  %{photo_id: photo.id, place_id: place_id, file_name: file_name, trace_id: trace_id}
   |> Exposure.Workers.ThumbnailWorker.new()
   |> Oban.insert()
   ```
@@ -34,7 +36,7 @@ defmodule Exposure.Workers.ThumbnailWorker do
     # Prevent duplicate jobs for the same photo within 5 minutes
     unique: [period: 300, fields: [:args, :worker]]
 
-  require Logger
+  alias Exposure.Observability, as: Log
 
   import Ecto.Query
 
@@ -44,21 +46,32 @@ defmodule Exposure.Workers.ThumbnailWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{
-        args: %{"photo_id" => photo_id, "place_id" => place_id, "file_name" => file_name},
+        args: %{"photo_id" => photo_id, "place_id" => place_id, "file_name" => file_name} = args,
         attempt: attempt,
         max_attempts: max_attempts
       }) do
-    Logger.info(
-      "ThumbnailWorker: Starting job for photo #{photo_id} (attempt #{attempt}/#{max_attempts})"
+    # Propagate trace ID from the original request if available
+    trace_id = Map.get(args, "trace_id")
+
+    # Use New Relic transaction for background job visibility
+    Log.with_transaction("Oban", "ThumbnailWorker", trace_id, fn ->
+      NewRelic.add_attributes(photo_id: photo_id, place_id: place_id, attempt: attempt)
+      do_perform(photo_id, place_id, file_name, attempt, max_attempts)
+    end)
+  end
+
+  defp do_perform(photo_id, place_id, file_name, attempt, max_attempts) do
+    Log.info("worker.thumbnail.start",
+      photo_id: photo_id,
+      place_id: place_id,
+      attempt: attempt,
+      max_attempts: max_attempts
     )
 
     # First verify the photo still exists in DB
     case get_photo(photo_id) do
       nil ->
-        Logger.info(
-          "ThumbnailWorker: Photo #{photo_id} no longer exists in database, cancelling job"
-        )
-
+        Log.info("worker.thumbnail.cancelled", photo_id: photo_id, reason: "photo_deleted")
         {:cancel, "Photo deleted from database"}
 
       _photo ->
@@ -70,21 +83,34 @@ defmodule Exposure.Workers.ThumbnailWorker do
         case result do
           :ok ->
             update_thumbnail_status(photo_id, "completed")
-
-            Logger.info(
-              "ThumbnailWorker: Successfully generated thumbnails for photo #{photo_id}"
-            )
-
+            Log.info("worker.thumbnail.success", photo_id: photo_id, place_id: place_id)
+            Log.emit(:thumbnail_generate, %{count: 1}, %{place_id: place_id, status: "success"})
             :ok
 
           {:cancel, reason} ->
             update_thumbnail_status(photo_id, "failed")
+            Log.warning("worker.thumbnail.cancelled", photo_id: photo_id, reason: reason)
+            Log.emit(:thumbnail_generate, %{count: 1}, %{place_id: place_id, status: "cancelled"})
             {:cancel, reason}
 
           {:error, reason} ->
             # Only mark as failed on final attempt
             if attempt >= max_attempts do
               update_thumbnail_status(photo_id, "failed")
+
+              Log.error("worker.thumbnail.failed",
+                photo_id: photo_id,
+                reason: reason,
+                attempts: max_attempts
+              )
+
+              Log.emit(:thumbnail_generate_error, %{count: 1}, %{place_id: place_id})
+            else
+              Log.warning("worker.thumbnail.retry",
+                photo_id: photo_id,
+                reason: reason,
+                attempt: attempt
+              )
             end
 
             {:error, reason}
@@ -125,7 +151,7 @@ defmodule Exposure.Workers.ThumbnailWorker do
   defp generate_og_image(place_id, file_path, file_name, photos_dir) do
     case Repo.get(Place, place_id) do
       nil ->
-        Logger.warning("ThumbnailWorker: Place #{place_id} not found, skipping OG image")
+        Log.warning("worker.og_image.place_not_found", place_id: place_id)
         :ok
 
       place ->
@@ -135,12 +161,12 @@ defmodule Exposure.Workers.ThumbnailWorker do
 
         case OgImageGenerator.generate(file_path, og_path, place.name, location) do
           {:ok, _} ->
-            Logger.info("ThumbnailWorker: Generated OG image for #{file_name}")
+            Log.debug("worker.og_image.success", place_id: place_id, file_name: file_name)
             :ok
 
           {:error, reason} ->
             # OG image generation failure is non-fatal - log and continue
-            Logger.warning("ThumbnailWorker: Failed to generate OG image: #{inspect(reason)}")
+            Log.warning("worker.og_image.failed", place_id: place_id, reason: inspect(reason))
             :ok
         end
     end

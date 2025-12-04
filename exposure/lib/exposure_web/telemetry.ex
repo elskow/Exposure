@@ -79,7 +79,58 @@ defmodule ExposureWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # ==========================================================================
+      # Custom Business Metrics
+      # ==========================================================================
+
+      # Photo Operations
+      counter("exposure.photo_upload.count",
+        tags: [:place_id],
+        description: "Number of photos uploaded"
+      ),
+      sum("exposure.photo_upload.total_count",
+        description: "Total photos uploaded (sum of batch counts)"
+      ),
+      summary("exposure.photo_upload.duration_ms",
+        tags: [:place_id],
+        unit: :millisecond,
+        description: "Time to process photo upload"
+      ),
+      counter("exposure.photo_delete.count",
+        tags: [:place_id],
+        description: "Number of photos deleted"
+      ),
+
+      # Thumbnail Generation
+      counter("exposure.thumbnail_generate.count",
+        tags: [:place_id, :status],
+        description: "Thumbnail generation attempts"
+      ),
+      summary("exposure.thumbnail_generate.duration_ms",
+        tags: [:place_id],
+        unit: :millisecond,
+        description: "Time to generate thumbnail"
+      ),
+      counter("exposure.thumbnail_generate_error.count",
+        tags: [:place_id],
+        description: "Failed thumbnail generations"
+      ),
+
+      # Place Operations
+      counter("exposure.place_create.count",
+        description: "Places created"
+      ),
+      counter("exposure.place_delete.count",
+        description: "Places deleted"
+      ),
+
+      # Authentication
+      counter("exposure.auth_login.count",
+        tags: [:method, :success],
+        description: "Login attempts by method and outcome"
+      )
     ]
   end
 

@@ -3,7 +3,7 @@ defmodule Exposure.Services.Photo do
   Photo service for handling photo uploads, deletions, and reordering.
   """
 
-  require Logger
+  alias Exposure.Observability, as: Log
 
   import Ecto.Query
 
@@ -18,14 +18,13 @@ defmodule Exposure.Services.Photo do
   def upload_photos(place_id, files) when is_list(files) do
     case FileValidation.validate_files(files) do
       {:error, errors} ->
-        error_message = Enum.join(errors, "; ")
-        Logger.warning("File validation failed for placeId #{place_id}: #{error_message}")
-        {:error, error_message}
+        Log.warning("photo.upload.validation_failed", place_id: place_id, errors: length(errors))
+        {:error, Enum.join(errors, "; ")}
 
       :ok ->
         case Repo.get(Place, place_id) do
           nil ->
-            Logger.warning("Place not found for upload: #{place_id}")
+            Log.warning("photo.upload.place_not_found", place_id: place_id)
             {:error, "Place not found"}
 
           place ->
@@ -45,7 +44,7 @@ defmodule Exposure.Services.Photo do
 
     case photo do
       nil ->
-        Logger.warning("Photo not found for deletion: placeId #{place_id}, photoNum #{photo_num}")
+        Log.warning("photo.delete.not_found", place_id: place_id, photo_num: photo_num)
         false
 
       photo ->
@@ -57,7 +56,7 @@ defmodule Exposure.Services.Photo do
             ImageProcessing.delete_thumbnails(photo.file_name, directory)
 
           {:error, _} ->
-            Logger.warning("Path validation error during delete for placeId #{place_id}")
+            Log.warning("photo.delete.path_error", place_id: place_id, photo_num: photo_num)
         end
 
         # Delete from database
@@ -68,7 +67,8 @@ defmodule Exposure.Services.Photo do
         |> where([p], p.place_id == ^place_id and p.photo_num > ^photo_num)
         |> Repo.update_all(inc: [photo_num: -1])
 
-        Logger.info("Deleted photo #{photo_num} from placeId #{place_id}")
+        Log.info("photo.deleted", place_id: place_id, photo_num: photo_num)
+        Log.emit(:photo_delete, %{count: 1}, %{place_id: place_id})
         true
     end
   end
@@ -86,8 +86,10 @@ defmodule Exposure.Services.Photo do
       |> Repo.aggregate(:count)
 
     if photo_count != length(new_order) do
-      Logger.warning(
-        "Reorder failed: photo count mismatch for placeId #{place_id}. Expected #{photo_count}, got #{length(new_order)}"
+      Log.warning("photo.reorder.count_mismatch",
+        place_id: place_id,
+        expected: photo_count,
+        received: length(new_order)
       )
 
       false
@@ -147,11 +149,11 @@ defmodule Exposure.Services.Photo do
       end)
       |> case do
         {:ok, _} ->
-          Logger.info("Reordered photos for placeId #{place_id}")
+          Log.info("photo.reordered", place_id: place_id, count: length(new_order))
           true
 
         {:error, reason} ->
-          Logger.error("Failed to reorder photos for placeId #{place_id}: #{inspect(reason)}")
+          Log.error("photo.reorder.failed", place_id: place_id, reason: inspect(reason))
           false
       end
     end
@@ -173,25 +175,25 @@ defmodule Exposure.Services.Photo do
   def delete_place_with_photos(place_id) do
     case PathValidation.delete_directory_safely(place_id) do
       :ok ->
-        Logger.info("Deleted photos directory for placeId #{place_id}")
+        Log.info("place.directory.deleted", place_id: place_id)
 
       {:error, msg} ->
-        Logger.warning("Failed to delete photos directory for placeId #{place_id}: #{msg}")
+        Log.warning("place.directory.delete_failed", place_id: place_id, reason: msg)
     end
 
     case Exposure.get_place(place_id) do
       nil ->
-        Logger.warning("Failed to delete place #{place_id} from database")
+        Log.warning("place.delete.not_found", place_id: place_id)
         false
 
       place ->
         case Exposure.delete_place(place) do
           {:ok, _} ->
-            Logger.info("Successfully deleted place #{place_id} with all photos")
+            Log.info("place.deleted", place_id: place_id)
             true
 
           {:error, _} ->
-            Logger.warning("Failed to delete place #{place_id} from database")
+            Log.error("place.delete.failed", place_id: place_id)
             false
         end
     end
@@ -217,15 +219,16 @@ defmodule Exposure.Services.Photo do
 
       case updated do
         {count, _} when count > 0 ->
-          action = if is_favorite, do: "Set", else: "Removed"
-          Logger.info("#{action} favorite for placeId #{place_id}, photoNum #{photo_num}")
+          Log.info("photo.favorite.updated",
+            place_id: place_id,
+            photo_num: photo_num,
+            is_favorite: is_favorite
+          )
+
           true
 
         _ ->
-          Logger.warning(
-            "Photo not found for favorite toggle: placeId #{place_id}, photoNum #{photo_num}"
-          )
-
+          Log.warning("photo.favorite.not_found", place_id: place_id, photo_num: photo_num)
           Repo.rollback(:not_found)
       end
     end)
@@ -275,8 +278,8 @@ defmodule Exposure.Services.Photo do
 
           cond do
             uploaded_count > 0 ->
-              Logger.info("Successfully uploaded #{uploaded_count} photos to placeId #{place.id}")
-
+              Log.info("photo.upload.success", place_id: place.id, count: uploaded_count)
+              Log.emit(:photo_upload, %{count: uploaded_count}, %{place_id: place.id})
               {:ok, uploaded_count}
 
             filtered_count > 0 ->
@@ -316,16 +319,22 @@ defmodule Exposure.Services.Photo do
             # Step 3: Queue thumbnail generation job
             case queue_thumbnail_job(photo_id, place_id, file_name) do
               {:ok, _job} ->
-                Logger.info(
-                  "Saved photo #{photo_num} for placeId #{place_id}: #{file_name} (#{dimensions.width}x#{dimensions.height}) - thumbnail job queued"
+                Log.info("photo.saved",
+                  place_id: place_id,
+                  photo_num: photo_num,
+                  file_name: file_name,
+                  width: dimensions.width,
+                  height: dimensions.height
                 )
 
                 :ok
 
               {:error, reason} ->
                 # Job queue failed but photo is saved - log warning, don't fail upload
-                Logger.warning(
-                  "Photo saved but thumbnail job failed to queue for #{file_name}: #{inspect(reason)}"
+                Log.warning("photo.thumbnail_job.queue_failed",
+                  place_id: place_id,
+                  photo_num: photo_num,
+                  reason: inspect(reason)
                 )
 
                 :ok
@@ -334,12 +343,23 @@ defmodule Exposure.Services.Photo do
           {:error, reason} ->
             # Clean up file if DB insert failed
             cleanup_file(file_path, file_name, photos_dir)
-            Logger.error("Database save failed for #{original_filename}: #{reason}")
+
+            Log.error("photo.save.db_failed",
+              place_id: place_id,
+              file_name: original_filename,
+              reason: reason
+            )
+
             {:error, "Database error for #{original_filename}"}
         end
 
       {:error, reason} ->
-        Logger.error("File processing failed for #{original_filename}: #{reason}")
+        Log.error("photo.save.file_failed",
+          place_id: place_id,
+          file_name: original_filename,
+          reason: reason
+        )
+
         {:error, reason}
     end
   end
@@ -412,9 +432,11 @@ defmodule Exposure.Services.Photo do
     end
   end
 
-  # Queue thumbnail generation job via Oban
+  # Queue thumbnail generation job via Oban with trace ID propagation
   defp queue_thumbnail_job(photo_id, place_id, file_name) do
-    %{photo_id: photo_id, place_id: place_id, file_name: file_name}
+    trace_id = Log.current_trace_id()
+
+    %{photo_id: photo_id, place_id: place_id, file_name: file_name, trace_id: trace_id}
     |> ThumbnailWorker.new()
     |> Oban.insert()
   end
@@ -437,8 +459,10 @@ defmodule Exposure.Services.Photo do
         jitter = :rand.uniform(50) + attempt * 20
         :timer.sleep(jitter)
 
-        Logger.warning(
-          "Retrying photo insert for placeId #{place_id}, attempt #{attempt + 1}/#{@max_insert_retries}"
+        Log.debug("photo.insert.retry",
+          place_id: place_id,
+          attempt: attempt + 1,
+          max_attempts: @max_insert_retries
         )
 
         insert_photo_with_retry(place_id, file_name, dimensions, nil, attempt + 1)

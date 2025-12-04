@@ -1,6 +1,7 @@
 defmodule ExposureWeb.AdminController do
   use ExposureWeb, :controller
 
+  alias Exposure.Observability, as: Log
   alias Exposure.Services.{Authentication, InputValidation, OIDC, Photo, RateLimiter}
 
   plug(:require_auth when action not in [:login, :do_login, :oidc_login, :oidc_callback])
@@ -106,6 +107,8 @@ defmodule ExposureWeb.AdminController do
                {:ok, user} <- Authentication.authenticate(username, password, totp_code) do
             # Clear rate limit on successful login
             RateLimiter.clear(username)
+            Log.info("auth.login.success", username: username, method: "local")
+            Log.emit(:auth_login, %{count: 1}, %{method: "local", success: true})
 
             conn
             |> configure_session(renew: true)
@@ -116,6 +119,8 @@ defmodule ExposureWeb.AdminController do
             {:error, msg} ->
               # Record failed attempt
               RateLimiter.record_failure(username)
+              Log.warning("auth.login.failed", username: username, reason: msg)
+              Log.emit(:auth_login, %{count: 1}, %{method: "local", success: false})
 
               conn
               |> render(:login,
@@ -164,6 +169,13 @@ defmodule ExposureWeb.AdminController do
         # Create a session identifier based on OIDC subject
         session_id = "oidc:#{user_info.sub}"
 
+        Log.info("auth.login.success",
+          username: user_info.name || user_info.email,
+          method: "oidc"
+        )
+
+        Log.emit(:auth_login, %{count: 1}, %{method: "oidc", success: true})
+
         conn
         |> configure_session(renew: true)
         |> delete_session(:oidc_state)
@@ -174,6 +186,8 @@ defmodule ExposureWeb.AdminController do
         |> redirect(to: ~p"/admin")
 
       {:error, reason} ->
+        Log.warning("auth.oidc.callback_failed", reason: reason)
+
         conn
         |> delete_session(:oidc_state)
         |> delete_session(:oidc_nonce)
@@ -193,6 +207,9 @@ defmodule ExposureWeb.AdminController do
   end
 
   def logout(conn, _params) do
+    username = get_session(conn, :admin_username)
+    Log.info("auth.logout", username: username)
+
     conn
     |> clear_session()
     |> redirect(to: ~p"/admin/login")
@@ -229,6 +246,8 @@ defmodule ExposureWeb.AdminController do
         case Exposure.create_place(attrs) do
           {:ok, place} ->
             Exposure.invalidate_places_cache()
+            Log.info("admin.place.created", place_id: place.id, name: valid_name)
+            Log.emit(:place_create, %{count: 1}, %{place_id: place.id})
             redirect(conn, to: ~p"/admin/edit/#{place.id}")
 
           {:error, changeset} ->
@@ -287,8 +306,9 @@ defmodule ExposureWeb.AdminController do
           }
 
           case Exposure.update_place(place, attrs) do
-            {:ok, _} ->
+            {:ok, updated_place} ->
               Exposure.invalidate_places_cache()
+              Log.info("admin.place.updated", place_id: updated_place.id)
               redirect(conn, to: ~p"/admin")
 
             {:error, _changeset} ->
@@ -315,6 +335,8 @@ defmodule ExposureWeb.AdminController do
          {:ok, valid_id} <- InputValidation.validate_id(valid_id, "Place ID") do
       if Photo.delete_place_with_photos(valid_id) do
         Exposure.invalidate_places_cache()
+        Log.info("admin.place.deleted", place_id: valid_id)
+        Log.emit(:place_delete, %{count: 1}, %{place_id: valid_id})
         json(conn, %{success: true, message: "Place deleted successfully"})
       else
         conn
@@ -359,6 +381,7 @@ defmodule ExposureWeb.AdminController do
         {:ok, validated_order} ->
           Exposure.reorder_places(validated_order)
           Exposure.invalidate_places_cache()
+          Log.info("admin.places.reordered", count: length(validated_order))
           json(conn, %{success: true, message: "Places reordered successfully"})
       end
     end
@@ -444,6 +467,7 @@ defmodule ExposureWeb.AdminController do
          {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.delete_photo(valid_place_id, valid_photo_num) do
         Exposure.invalidate_places_cache()
+        Log.info("admin.photo.deleted", place_id: valid_place_id, photo_num: valid_photo_num)
         json(conn, %{success: true, message: "Photo deleted successfully"})
       else
         conn
@@ -489,6 +513,11 @@ defmodule ExposureWeb.AdminController do
 
           {:ok, validated_order} ->
             if Photo.reorder_photos(valid_place_id, validated_order) do
+              Log.info("admin.photos.reordered",
+                place_id: valid_place_id,
+                count: length(validated_order)
+              )
+
               json(conn, %{success: true, message: "Photos reordered successfully"})
             else
               conn

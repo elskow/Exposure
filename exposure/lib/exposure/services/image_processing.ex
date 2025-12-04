@@ -8,7 +8,7 @@ defmodule Exposure.Services.ImageProcessing do
   when multiple processes attempt to generate thumbnails for the same image.
   """
 
-  require Logger
+  alias Exposure.Observability, as: Log
 
   @thumbnail_sizes %{
     thumb: 200,
@@ -45,8 +45,10 @@ defmodule Exposure.Services.ImageProcessing do
         {:ok, image} ->
           {width, height, _} = Image.shape(image)
 
-          Logger.debug(
-            "Loaded image #{original_path} (#{width}x#{height}) - scheduling async thumbnail generation"
+          Log.debug("thumbnail.async.scheduled",
+            file: base_filename,
+            width: width,
+            height: height
           )
 
           # Schedule thumbnail generation in the background
@@ -58,7 +60,7 @@ defmodule Exposure.Services.ImageProcessing do
           {:ok, %{width: width, height: height}}
 
         {:error, reason} ->
-          Logger.error("Error loading image #{original_path}: #{inspect(reason)}")
+          Log.error("thumbnail.async.load_failed", file: base_filename, reason: inspect(reason))
           {:error, "Failed to load image: #{inspect(reason)}"}
       end
     end
@@ -97,8 +99,10 @@ defmodule Exposure.Services.ImageProcessing do
           {:ok, image} ->
             {width, height, _} = Image.shape(image)
 
-            Logger.debug(
-              "Loaded image #{original_path} (#{width}x#{height}) for thumbnail generation"
+            Log.debug("thumbnail.generate.start",
+              file: base_filename,
+              width: width,
+              height: height
             )
 
             # Generate thumbnails sequentially with retry for reliability
@@ -124,11 +128,11 @@ defmodule Exposure.Services.ImageProcessing do
               # Verify all thumbnails exist and have valid size
               case verify_thumbnails(base_filename, output_directory) do
                 :ok ->
-                  Logger.info("Generated and verified all thumbnails for #{base_filename}")
+                  Log.info("thumbnail.generate.success", file: base_filename)
                   {:ok, %{width: width, height: height}}
 
                 {:error, missing} ->
-                  Logger.error("Thumbnail verification failed for #{base_filename}: #{missing}")
+                  Log.error("thumbnail.verify.failed", file: base_filename, missing: missing)
                   {:error, "Thumbnail verification failed: #{missing}"}
               end
             else
@@ -144,7 +148,11 @@ defmodule Exposure.Services.ImageProcessing do
             end
 
           {:error, reason} ->
-            Logger.error("Error loading image #{original_path}: #{inspect(reason)}")
+            Log.error("thumbnail.generate.load_failed",
+              file: base_filename,
+              reason: inspect(reason)
+            )
+
             {:error, "Failed to load image: #{inspect(reason)}"}
         end
     end
@@ -273,8 +281,11 @@ defmodule Exposure.Services.ImageProcessing do
         success
 
       {:ok, {:error, _, _}} when attempt < @max_retries ->
-        Logger.warning(
-          "Thumbnail generation failed for #{size} (attempt #{attempt}/#{@max_retries}), retrying..."
+        Log.debug("thumbnail.size.retry",
+          file: base_filename,
+          size: size,
+          attempt: attempt,
+          max_attempts: @max_retries
         )
 
         Process.sleep(@retry_delay_ms * attempt)
@@ -290,13 +301,20 @@ defmodule Exposure.Services.ImageProcessing do
         )
 
       {:ok, {:error, _, _} = error} ->
-        Logger.error("Thumbnail generation failed for #{size} after #{@max_retries} attempts")
+        Log.error("thumbnail.size.failed",
+          file: base_filename,
+          size: size,
+          attempts: @max_retries
+        )
+
         error
 
       nil ->
         # Task timed out
-        Logger.error(
-          "Thumbnail generation timed out for #{size} after #{@thumbnail_timeout_ms}ms"
+        Log.error("thumbnail.size.timeout",
+          file: base_filename,
+          size: size,
+          timeout_ms: @thumbnail_timeout_ms
         )
 
         if attempt < @max_retries do
@@ -316,7 +334,11 @@ defmodule Exposure.Services.ImageProcessing do
         end
 
       {:exit, reason} ->
-        Logger.error("Thumbnail generation crashed for #{size}: #{inspect(reason)}")
+        Log.error("thumbnail.size.crashed",
+          file: base_filename,
+          size: size,
+          reason: inspect(reason)
+        )
 
         if attempt < @max_retries do
           Process.sleep(@retry_delay_ms * attempt)
@@ -395,10 +417,10 @@ defmodule Exposure.Services.ImageProcessing do
       if File.exists?(thumb_path) do
         case File.rm(thumb_path) do
           :ok ->
-            Logger.debug("Deleted thumbnail: #{thumb_path}")
+            :ok
 
           {:error, reason} ->
-            Logger.warning("Failed to delete thumbnail #{thumb_path}: #{inspect(reason)}")
+            Log.warning("thumbnail.delete.failed", path: thumb_path, reason: inspect(reason))
         end
       end
     end)
@@ -440,8 +462,11 @@ defmodule Exposure.Services.ImageProcessing do
               # Atomically rename temp to final path
               case File.rename(temp_path, thumb_path) do
                 :ok ->
-                  Logger.debug(
-                    "Generated #{size} thumbnail: #{Path.basename(thumb_path)} (#{new_width}x#{new_height})"
+                  Log.debug("thumbnail.size.created",
+                    file: base_filename,
+                    size: size,
+                    width: new_width,
+                    height: new_height
                   )
 
                   {:ok, size, thumb_filename}
@@ -461,7 +486,7 @@ defmodule Exposure.Services.ImageProcessing do
       end
     rescue
       e ->
-        Logger.error("Error generating #{size} thumbnail: #{inspect(e)}")
+        Log.error("thumbnail.size.exception", file: base_filename, size: size, error: inspect(e))
         {:error, size, inspect(e)}
     end
   end
