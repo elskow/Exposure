@@ -278,6 +278,9 @@ defmodule ExposureWeb.Telemetry do
 
   @doc false
   def report_vm_metrics do
+    # Name this background task so it doesn't appear as "Unknown" in New Relic
+    NewRelic.set_transaction_name("Background/TelemetryPoller/report_vm_metrics")
+
     # Memory metrics (in MB)
     memory = :erlang.memory()
     total_mb = trunc(memory[:total] / 1_048_576)

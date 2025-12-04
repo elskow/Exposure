@@ -78,6 +78,8 @@ defmodule Exposure.Services.PlacesCache do
 
   @impl true
   def handle_info(:cleanup, state) do
+    # Name this background task so it doesn't appear as "Unknown" in New Relic
+    NewRelic.set_transaction_name("Background/PlacesCache/cleanup")
     cleanup_expired()
     schedule_cleanup()
     {:noreply, state}

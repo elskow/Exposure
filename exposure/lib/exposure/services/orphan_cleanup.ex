@@ -96,6 +96,8 @@ defmodule Exposure.Services.OrphanCleanup do
 
   @impl true
   def handle_info(:cleanup, state) do
+    # Name this background task so it doesn't appear as "Unknown" in New Relic
+    NewRelic.set_transaction_name("Background/OrphanCleanup/cleanup")
     stats = do_cleanup(dry_run: state.dry_run, file_age_minutes: state.file_age_minutes)
     new_state = %{state | last_run: DateTime.utc_now(), stats: stats}
 

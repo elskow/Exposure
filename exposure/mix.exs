@@ -69,7 +69,7 @@ defmodule Exposure.MixProject do
       # Image processing
       {:image, "~> 0.54"},
       # QR code generation
-      {:eqrcode, "~> 0.1.10"},
+      {:eqrcode, "~> 0.2.1"},
       # OIDC authentication
       {:openid_connect, "~> 1.0"},
       # New Relic APM agent
@@ -77,7 +77,7 @@ defmodule Exposure.MixProject do
       # Job queue for background processing
       {:oban, "~> 2.20"},
       # JSON logging for production (New Relic logs_in_context)
-      {:logger_json, "~> 6.0"}
+      {:logger_json, "~> 7.0"}
     ]
   end
 

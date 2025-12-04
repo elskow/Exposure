@@ -143,7 +143,12 @@ defmodule Exposure.Workers.ThumbnailWorker do
         {:error, reason}
 
       {:error, reason} ->
+        # Convert any other error types to string
         {:error, inspect(reason)}
+
+      other ->
+        # Handle unexpected return values
+        {:error, "Unexpected error: #{inspect(other)}"}
     end
   end
 
