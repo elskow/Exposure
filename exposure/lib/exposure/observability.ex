@@ -186,7 +186,7 @@ defmodule Exposure.Observability do
 
   @doc """
   Logs an exception with full stacktrace at error level.
-  Also reports the error to New Relic.
+  Also reports the error to New Relic with full context.
   """
   @spec exception(event(), Exception.t(), Exception.stacktrace(), metadata()) :: :ok
   def exception(event, exception, stacktrace, metadata \\ []) do
@@ -200,23 +200,41 @@ defmodule Exposure.Observability do
       build_metadata(event, error_metadata)
     )
 
+    # Add error context as transaction attributes before reporting
+    error_attrs =
+      metadata
+      |> Keyword.take([:place_id, :photo_id, :photo_num, :count, :duration_ms, :attempt])
+      |> Keyword.put(:event, event)
+      |> Keyword.put(:error_class, inspect(exception.__struct__))
+
+    NewRelic.add_attributes(error_attrs)
+
     # Report to New Relic for error tracking
     NewRelic.notice_error(exception, stacktrace)
   end
 
   @doc """
-  Measures execution time of a function, logs it, and emits telemetry.
+  Measures execution time of a function, logs it, emits telemetry, and adds span attributes.
   Returns the function result.
 
   ## Options
 
   - `:telemetry_event` - Atom for telemetry event name (emits `[:exposure, <name>]`)
+
+  ## Example
+
+      measure("photo.resize", [photo_id: 123, telemetry_event: :photo_resize], fn ->
+        # expensive operation
+      end)
   """
   @spec measure(event(), metadata() | keyword(), (-> result)) :: result when result: any()
   def measure(event, metadata \\ [], fun) do
     {opts, metadata} = Keyword.split(metadata, [:telemetry_event])
     telemetry_event = Keyword.get(opts, :telemetry_event)
     start = System.monotonic_time(:microsecond)
+
+    # Add span attributes for this operation
+    NewRelic.add_attributes(operation: event)
 
     try do
       result = fun.()
@@ -230,6 +248,8 @@ defmodule Exposure.Observability do
 
       if telemetry_event do
         emit(telemetry_event, %{duration_ms: duration_ms}, Map.new(metadata))
+        # Also report as New Relic custom metric for dashboards
+        record_metric("#{telemetry_event}/Duration", duration_ms)
       end
 
       result
@@ -247,6 +267,7 @@ defmodule Exposure.Observability do
 
         if telemetry_event do
           emit(:"#{telemetry_event}_error", %{duration_ms: duration_ms}, Map.new(metadata))
+          NewRelic.increment_custom_metric("#{telemetry_event}/Error")
         end
 
         reraise e, __STACKTRACE__
@@ -296,6 +317,70 @@ defmodule Exposure.Observability do
   def report_custom_event(event_type, attributes) do
     NewRelic.report_custom_event(event_type, attributes)
     :ok
+  end
+
+  @doc """
+  Records a custom metric to New Relic for dashboards and alerting.
+  Use for numeric measurements that should be aggregated over time.
+
+  ## Parameters
+
+  - `name` - Metric name
+  - `value` - Numeric value to record
+
+  ## Example
+
+      record_metric("PhotoUpload/Duration", 123.45)
+      record_metric("ThumbnailGeneration/Count", 1)
+  """
+  @spec record_metric(String.t(), number()) :: :ok
+  def record_metric(name, value) when is_number(value) do
+    NewRelic.report_custom_metric(name, value)
+    :ok
+  end
+
+  @doc """
+  Increment a counter metric in New Relic.
+  Useful for tracking counts of events.
+
+  ## Example
+
+      increment_metric("PhotoUploads", 5)
+  """
+  @spec increment_metric(String.t(), integer()) :: :ok
+  def increment_metric(name, count \\ 1) when is_integer(count) do
+    NewRelic.increment_custom_metric(name, count)
+    :ok
+  end
+
+  @doc """
+  Wraps an external HTTP call and adds attributes for New Relic tracing.
+  Use when making HTTP requests to external services.
+
+  ## Example
+
+      trace_external_call("api.example.com", "GET", fn ->
+        Req.get!("https://api.example.com/data")
+      end)
+  """
+  @spec trace_external_call(String.t(), String.t(), (-> result)) :: result when result: any()
+  def trace_external_call(host, method, fun) do
+    start = System.monotonic_time(:microsecond)
+    NewRelic.add_attributes(external_host: host, external_method: method)
+
+    try do
+      result = fun.()
+      duration_us = System.monotonic_time(:microsecond) - start
+      duration_ms = Float.round(duration_us / 1000, 2)
+
+      # Report external call metric
+      NewRelic.report_custom_metric("External/#{host}/#{method}", duration_ms)
+      result
+    rescue
+      e ->
+        NewRelic.add_attributes(external_error: true)
+        reraise e, __STACKTRACE__
+    end
   end
 
   # =============================================================================

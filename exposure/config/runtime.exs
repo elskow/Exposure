@@ -250,7 +250,21 @@ if config_env() == :prod do
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.
       # See the documentation on https://hexdocs.pm/bandit/Bandit.html#t:options/0
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
-      ip: {0, 0, 0, 0, 0, 0, 0, 0}
+      ip: {0, 0, 0, 0, 0, 0, 0, 0},
+      # HTTP/1.1 specific options (header limits)
+      http_1_options: [
+        # Max header length (32KB - protect against oversized header attacks)
+        max_header_length: 32_768,
+        # Max request line length (8KB)
+        max_request_line_length: 8_192,
+        # Max number of headers
+        max_header_count: 100
+      ],
+      # General HTTP options
+      http_options: [
+        # Disable noisy default protocol error logs (we handle via telemetry)
+        log_protocol_errors: false
+      ]
     ],
     secret_key_base: secret_key_base
 

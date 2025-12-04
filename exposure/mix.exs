@@ -75,7 +75,9 @@ defmodule Exposure.MixProject do
       # New Relic APM agent
       {:new_relic_agent, "~> 1.0"},
       # Job queue for background processing
-      {:oban, "~> 2.20"}
+      {:oban, "~> 2.20"},
+      # JSON logging for production (New Relic logs_in_context)
+      {:logger_json, "~> 6.0"}
     ]
   end
 

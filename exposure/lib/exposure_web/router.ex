@@ -9,10 +9,17 @@ defmodule ExposureWeb.Router do
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
     plug(ExposureWeb.Plugs.SecurityHeaders)
+    plug(ExposureWeb.Plugs.NewRelicTransaction)
   end
 
   pipeline :api do
     plug(:accepts, ["json"])
+    plug(ExposureWeb.Plugs.NewRelicTransaction)
+  end
+
+  pipeline :seo do
+    plug(:accepts, ["xml", "text"])
+    plug(ExposureWeb.Plugs.NewRelicTransaction)
   end
 
   pipeline :admin do
@@ -23,6 +30,7 @@ defmodule ExposureWeb.Router do
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
     plug(ExposureWeb.Plugs.SecurityHeaders)
+    plug(ExposureWeb.Plugs.NewRelicTransaction)
   end
 
   scope "/", ExposureWeb do
@@ -34,8 +42,10 @@ defmodule ExposureWeb.Router do
     get("/places/:country/:location/:name/:photo", PlaceController, :detail)
   end
 
-  # SEO routes (no layout needed)
+  # SEO routes
   scope "/", ExposureWeb do
+    pipe_through(:seo)
+
     get("/sitemap.xml", SitemapController, :sitemap)
     get("/robots.txt", SitemapController, :robots)
   end

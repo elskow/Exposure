@@ -20,5 +20,24 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
+# Use JSON formatter in production for New Relic logs_in_context
+# This ensures all metadata appears as searchable attributes in New Relic
+config :logger, :default_handler,
+  formatter:
+    {LoggerJSON.Formatters.Basic,
+     metadata: [
+       :request_id,
+       :trace_id,
+       :event,
+       :place_id,
+       :photo_id,
+       :photo_num,
+       :count,
+       :duration_ms,
+       :attempt,
+       :error_type
+     ],
+     redactors: []}
+
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.

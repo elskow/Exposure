@@ -77,7 +77,24 @@ config :exposure, ExposureWeb.Endpoint,
     layout: false
   ],
   pubsub_server: Exposure.PubSub,
-  live_view: [signing_salt: "IU31I1tH"]
+  live_view: [signing_salt: "IU31I1tH"],
+  # Bandit HTTP server options for security
+  http: [
+    # HTTP/1.1 specific options (where header limits live)
+    http_1_options: [
+      # Max header length (default: 64KB, we set 32KB for security)
+      max_header_length: 32_768,
+      # Max request line length (default: 8KB)
+      max_request_line_length: 8_192,
+      # Max number of headers (default: 100)
+      max_header_count: 100
+    ],
+    # General HTTP options
+    http_options: [
+      # Disable noisy default protocol error logs (we handle via telemetry)
+      log_protocol_errors: false
+    ]
+  ]
 
 # Configure the mailer
 #

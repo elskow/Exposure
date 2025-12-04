@@ -2,12 +2,20 @@ defmodule ExposureWeb.Telemetry do
   use Supervisor
   import Telemetry.Metrics
 
+  require Logger
+
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
   @impl true
   def init(_arg) do
+    # Attach telemetry handlers for New Relic integration
+    attach_handlers()
+
+    # Attach Bandit error handler for protocol errors (oversized headers, etc.)
+    ExposureWeb.BanditLogger.attach()
+
     children = [
       # Telemetry poller will execute the given period measurements
       # every 10_000ms. Learn more here: https://hexdocs.pm/telemetry_metrics
@@ -17,6 +25,133 @@ defmodule ExposureWeb.Telemetry do
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  # ==========================================================================
+  # New Relic Telemetry Handlers
+  # ==========================================================================
+
+  defp attach_handlers do
+    # Ecto query telemetry -> New Relic
+    :telemetry.attach(
+      "exposure-ecto-new-relic",
+      [:exposure, :repo, :query],
+      &__MODULE__.handle_ecto_query/4,
+      nil
+    )
+
+    # Oban job telemetry -> New Relic
+    :telemetry.attach_many(
+      "exposure-oban-new-relic",
+      [
+        [:oban, :job, :start],
+        [:oban, :job, :stop],
+        [:oban, :job, :exception]
+      ],
+      &__MODULE__.handle_oban_event/4,
+      nil
+    )
+
+    # Phoenix request telemetry -> New Relic custom attributes
+    :telemetry.attach(
+      "exposure-phoenix-new-relic",
+      [:phoenix, :router_dispatch, :stop],
+      &__MODULE__.handle_phoenix_request/4,
+      nil
+    )
+
+    Logger.debug("Telemetry handlers attached for New Relic integration")
+  end
+
+  @doc false
+  # Handle Ecto query events - report slow queries to New Relic
+  def handle_ecto_query(_event, measurements, metadata, _config) do
+    # Convert to milliseconds
+    total_time_ms =
+      System.convert_time_unit(measurements[:total_time] || 0, :native, :millisecond)
+
+    query_time_ms =
+      System.convert_time_unit(measurements[:query_time] || 0, :native, :millisecond)
+
+    queue_time_ms =
+      System.convert_time_unit(measurements[:queue_time] || 0, :native, :millisecond)
+
+    # Report as custom metric for aggregate monitoring
+    NewRelic.report_custom_metric("Datastore/SQLite/all", total_time_ms)
+
+    # For slow queries (>100ms), add custom event for analysis
+    if total_time_ms > 100 do
+      NewRelic.report_custom_event("SlowQuery", %{
+        query: String.slice(metadata[:query] || "", 0, 500),
+        total_time_ms: total_time_ms,
+        query_time_ms: query_time_ms,
+        queue_time_ms: queue_time_ms,
+        source: metadata[:source]
+      })
+    end
+  end
+
+  @doc false
+  # Handle Oban job events
+  def handle_oban_event([:oban, :job, :start], _measurements, metadata, _config) do
+    # Add job info as transaction attributes
+    NewRelic.add_attributes(
+      oban_worker: metadata.job.worker,
+      oban_queue: metadata.job.queue,
+      oban_attempt: metadata.job.attempt
+    )
+  end
+
+  def handle_oban_event([:oban, :job, :stop], measurements, metadata, _config) do
+    duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
+
+    queue_time_ms =
+      System.convert_time_unit(measurements[:queue_time] || 0, :native, :millisecond)
+
+    # Report job completion metrics
+    NewRelic.report_custom_metric("Oban/#{metadata.job.worker}/Duration", duration_ms)
+    NewRelic.report_custom_metric("Oban/#{metadata.job.worker}/QueueTime", queue_time_ms)
+
+    # Report custom event for job analytics
+    NewRelic.report_custom_event("ObanJob", %{
+      worker: metadata.job.worker,
+      queue: to_string(metadata.job.queue),
+      state: to_string(metadata.state),
+      attempt: metadata.job.attempt,
+      duration_ms: duration_ms,
+      queue_time_ms: queue_time_ms
+    })
+  end
+
+  def handle_oban_event([:oban, :job, :exception], measurements, metadata, _config) do
+    duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
+
+    # Report job failure metrics
+    NewRelic.increment_custom_metric("Oban/#{metadata.job.worker}/Error")
+
+    # Report error event
+    NewRelic.report_custom_event("ObanJobError", %{
+      worker: metadata.job.worker,
+      queue: to_string(metadata.job.queue),
+      attempt: metadata.job.attempt,
+      max_attempts: metadata.job.max_attempts,
+      duration_ms: duration_ms,
+      error_kind: to_string(metadata[:kind]),
+      error_reason: inspect(metadata[:reason]) |> String.slice(0, 500)
+    })
+  end
+
+  @doc false
+  # Handle Phoenix request completion - add route info
+  def handle_phoenix_request(_event, measurements, metadata, _config) do
+    duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
+
+    # Add route-specific attributes to current transaction
+    NewRelic.add_attributes(
+      phoenix_controller: inspect(metadata[:plug]),
+      phoenix_action: metadata[:plug_opts],
+      request_duration_ms: duration_ms
+    )
   end
 
   def metrics do
@@ -136,9 +271,35 @@ defmodule ExposureWeb.Telemetry do
 
   defp periodic_measurements do
     [
-      # A module, function and arguments to be invoked periodically.
-      # This function must call :telemetry.execute/3 and a metric must be added above.
-      # {ExposureWeb, :count_users, []}
+      # Report VM metrics to New Relic periodically
+      {__MODULE__, :report_vm_metrics, []}
     ]
+  end
+
+  @doc false
+  def report_vm_metrics do
+    # Memory metrics (in MB)
+    memory = :erlang.memory()
+    total_mb = trunc(memory[:total] / 1_048_576)
+    processes_mb = trunc(memory[:processes] / 1_048_576)
+    binary_mb = trunc(memory[:binary] / 1_048_576)
+    ets_mb = trunc(memory[:ets] / 1_048_576)
+
+    NewRelic.report_custom_metric("VM/Memory/Total", total_mb)
+    NewRelic.report_custom_metric("VM/Memory/Processes", processes_mb)
+    NewRelic.report_custom_metric("VM/Memory/Binary", binary_mb)
+    NewRelic.report_custom_metric("VM/Memory/ETS", ets_mb)
+
+    # Process metrics
+    process_count = :erlang.system_info(:process_count)
+    NewRelic.report_custom_metric("VM/Processes/Count", process_count)
+
+    # Run queue lengths (indicator of scheduler load)
+    run_queue = :erlang.statistics(:run_queue)
+    NewRelic.report_custom_metric("VM/RunQueue/Total", run_queue)
+
+    # Emit telemetry for local metrics
+    :telemetry.execute([:vm, :memory], %{total: memory[:total]}, %{})
+    :telemetry.execute([:vm, :total_run_queue_lengths], %{total: run_queue}, %{})
   end
 end
