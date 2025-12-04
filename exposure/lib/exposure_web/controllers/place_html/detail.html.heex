@@ -35,6 +35,34 @@
   @keyframes spin {
     to { transform: rotate(360deg); }
   }
+  
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+      border-top-color: #000;
+      border-right-color: #000;
+    }
+    * {
+      transition-duration: 0.01ms !important;
+    }
+  }
+  
+  /* High contrast mode support */
+  @media (forced-colors: active) {
+    .photo-img {
+      border: 2px solid CanvasText;
+    }
+    button:focus, a:focus {
+      outline: 3px solid CanvasText !important;
+    }
+  }
+  
+  /* Keyboard user visual feedback */
+  .keyboard-user *:focus {
+    outline: 2px solid #000;
+    outline-offset: 2px;
+  }
 </style>
 
 <%!-- Preload current image --%>
@@ -50,20 +78,26 @@
   <link rel="prefetch" href={"/images/places/#{@photo.place_id}/#{prev_name}-medium.webp"} as="image" />
 <% end %>
 
-<div class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden fixed inset-0 z-50" role="application" aria-label="Photo viewer">
+<div class="bg-[#F0F0F0] text-[#111] h-[100dvh] w-screen flex flex-col overflow-hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={"Photo viewer - Photo #{@photo.photo_num} of #{@photo.total_photos}"}>
 
   <%!-- Screen reader announcements --%>
   <div role="status" aria-live="polite" aria-atomic="true" class="sr-only" id="photo-announcement">
     Photo <%= @photo.photo_num %> of <%= @photo.total_photos %> - <%= @photo.place_name %>, <%= @photo.location %>
   </div>
+  
+  <%!-- Keyboard hints for screen readers --%>
+  <div class="sr-only" id="keyboard-hints">
+    Use left and right arrow keys to navigate between photos. Press Escape to close and return to the gallery.
+  </div>
 
-  <header class="flex justify-between items-center px-5 md:px-12 h-20 shrink-0 z-20" role="banner">
+  <header class="flex justify-between items-center px-5 md:px-12 h-20 shrink-0 z-20">
     <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}"}
        id="close-button"
-       class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-black transition-all duration-300"
+       class="group inline-flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] rounded-full border border-gray-300 text-gray-500 hover:border-gray-400 hover:text-black transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
        aria-label={"Close photo viewer and return to #{@photo.place_name} gallery"}
-       title="Close (ESC)">
-      <span class="text-[10px] font-mono tracking-[0.1em] uppercase pt-px" aria-hidden="true">
+       title="Close (ESC)"
+       aria-describedby="keyboard-hints">
+      <span aria-hidden="true">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="18" y1="6" x2="6" y2="18"></line>
           <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -71,19 +105,18 @@
       </span>
     </a>
 
-    <nav class="flex gap-4 text-gray-500" aria-label="Photo navigation" role="navigation">
+    <nav class="flex gap-4 text-gray-500" aria-label="Photo navigation">
       <%= if @photo.prev_photo do %>
         <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}/#{@photo.prev_photo_slug}"}
            id="prev-button"
-           class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300"
+           class="group inline-flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
            aria-label={"Previous photo (#{@photo.prev_photo} of #{@photo.total_photos})"}
            title="Previous (Left Arrow)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
         </a>
       <% else %>
-        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 text-gray-300 cursor-default"
+        <span class="inline-flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] rounded-full border border-gray-200 text-gray-300 cursor-default"
               aria-label="No previous photo available"
-              role="button"
               aria-disabled="true">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
         </span>
@@ -92,15 +125,14 @@
       <%= if @photo.next_photo do %>
         <a href={~p"/places/#{@photo.country_slug}/#{@photo.location_slug}/#{@photo.name_slug}/#{@photo.next_photo_slug}"}
            id="next-button"
-           class="group inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300"
+           class="group inline-flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] rounded-full border border-gray-300 hover:border-gray-400 hover:text-black transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
            aria-label={"Next photo (#{@photo.next_photo} of #{@photo.total_photos})"}
            title="Next (Right Arrow)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </a>
       <% else %>
-        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gray-200 text-gray-300 cursor-default"
+        <span class="inline-flex items-center justify-center w-8 h-8 min-w-[44px] min-h-[44px] rounded-full border border-gray-200 text-gray-300 cursor-default"
               aria-label="No next photo available"
-              role="button"
               aria-disabled="true">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </span>
@@ -108,7 +140,7 @@
     </nav>
   </header>
 
-  <div id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative overflow-hidden" role="img" tabindex="-1">
+  <main id="main-image" class="flex-grow flex items-center justify-center p-4 md:p-8 relative overflow-hidden" tabindex="-1" aria-label="Photo display area">
     <%
       name_without_ext = Path.rootname(@photo.file_name)
       medium_file_name = "#{name_without_ext}-medium.webp"
@@ -116,9 +148,13 @@
       medium_src = "/images/places/#{@photo.place_id}/#{medium_file_name}"
     %>
     <figure class="photo-container">
+      <figcaption class="sr-only">
+        <%= @photo.place_name %> - Photo <%= @photo.photo_num %> of <%= @photo.total_photos %>, taken in <%= @photo.location %>, <%= @photo.country %> during <%= @photo.trip_dates %>
+      </figcaption>
+      
       <%!-- Loading spinner (for full image loading) --%>
-      <div class="loading-spinner hidden" id="loadingSpinner">
-        <div class="spinner"></div>
+      <div class="loading-spinner hidden" id="loadingSpinner" role="status" aria-label="Loading full resolution image">
+        <div class="spinner" aria-hidden="true"></div>
       </div>
 
       <%!-- Single image: starts with medium, swaps to full when loaded --%>
@@ -130,20 +166,20 @@
            onload="this.dataset.mediumLoaded = 'true';"
            onerror={"this.onerror=null; this.src='#{full_src}'; document.getElementById('loadingSpinner').classList.add('hidden');"} />
     </figure>
-  </div>
+  </main>
 
-  <footer class="flex justify-between items-end px-5 md:px-12 h-20 pb-8 shrink-0 z-20" role="contentinfo">
+  <footer class="flex justify-between items-end px-5 md:px-12 h-20 pb-8 shrink-0 z-20">
     <div class="flex flex-col gap-1">
-      <span class="text-black text-[10px] uppercase tracking-widest font-mono font-medium" aria-label="Location name"><%= @photo.place_name %></span>
-      <span class="text-gray-500 text-[10px] uppercase tracking-widest font-mono" aria-label="Location details"><%= @photo.location %>, <%= @photo.country %></span>
+      <span class="text-black text-[10px] uppercase tracking-widest font-mono font-medium"><%= @photo.place_name %></span>
+      <span class="text-gray-500 text-[10px] uppercase tracking-widest font-mono"><%= @photo.location %>, <%= @photo.country %></span>
     </div>
     <div class="flex flex-col gap-1 text-right">
-      <div class="flex gap-2 items-center justify-end text-black text-[10px] font-mono" aria-label="Photo counter">
-        <span aria-label="Current photo"><%= String.pad_leading(to_string(@photo.photo_num), 2, "0") %></span>
+      <div class="flex gap-2 items-center justify-end text-black text-[10px] font-mono" aria-label={"Photo #{@photo.photo_num} of #{@photo.total_photos}"}>
+        <span><%= String.pad_leading(to_string(@photo.photo_num), 2, "0") %></span>
         <svg class="w-2 h-2 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
-        <span class="text-gray-400" aria-label="Total photos"><%= @photo.total_photos %></span>
+        <span class="text-gray-400"><%= @photo.total_photos %></span>
       </div>
-      <span class="text-gray-400 text-[10px] uppercase tracking-widest font-mono" aria-label="Photo ID"><%= @photo.unique_id %></span>
+      <span class="text-gray-400 text-[10px] uppercase tracking-widest font-mono"><%= @photo.unique_id %></span>
     </div>
   </footer>
 

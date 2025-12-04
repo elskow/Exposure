@@ -1,4 +1,12 @@
-<div class="max-w-xl mx-auto px-6 text-[#111] mt-12 md:mt-32 mb-24" role="main">
+<%!-- Skip link for keyboard navigation --%>
+<a href="#main-content" class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:bg-black focus:text-white focus:px-4 focus:py-2 focus:rounded focus:outline-none focus:ring-2 focus:ring-white">
+  Skip to places list
+</a>
+
+<%!-- Screen reader announcements --%>
+<div id="sr-announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+
+<main id="main-content" class="max-w-xl mx-auto px-6 text-[#111] mt-12 md:mt-32 mb-24">
 
   <header class="mb-12 mt-6">
     <div class="mb-5 text-black opacity-70" aria-hidden="true">
@@ -8,16 +16,16 @@
       </svg>
     </div>
 
-    <div class="max-w-xl space-y-3">
+    <article class="max-w-xl space-y-3">
       <p class="text-[15px] leading-relaxed text-gray-900 font-serif">
         <span class="font-medium text-black italic">Places, frozen in time.</span> Every location tells a story through light and shadow. A collection of destinations where moments were captured, memories preserved, and the essence of each place immortalized through the lens.
       </p>
 
-      <div class="text-[10px] text-gray-400 pt-1 flex flex-col gap-0.5 font-mono uppercase tracking-wide">
+      <address class="text-[10px] text-gray-400 pt-1 flex flex-col gap-0.5 font-mono uppercase tracking-wide not-italic">
         <span>Helmy Luqmanulhakim</span>
         <span>Vol. MMXXV &mdash; Travel Archive</span>
-      </div>
-    </div>
+      </address>
+    </article>
   </header>
 
   <nav class="w-full" aria-label="Places index">
@@ -85,11 +93,11 @@
   </nav>
 
   <%= if @places == [] do %>
-    <div class="text-center py-12 text-gray-400 text-sm font-serif italic">
+    <div class="text-center py-12 text-gray-400 text-sm font-serif italic" role="status">
       <p>No places yet. Add some from the admin panel.</p>
     </div>
   <% end %>
-</div>
+</main>
 
 <script>
   // Keyboard navigation for places index
@@ -97,7 +105,14 @@
     'use strict';
 
     const placeLinks = Array.from(document.querySelectorAll('table a[href*="places"]'));
+    const announcer = document.getElementById('sr-announcer');
     let currentFocusIndex = -1;
+    
+    function announce(message) {
+      if (announcer) {
+        announcer.textContent = message;
+      }
+    }
 
     document.addEventListener('keydown', function(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
@@ -112,6 +127,7 @@
             e.preventDefault();
             currentFocusIndex = currentFocusIndex === -1 ? 0 : currentFocusIndex + 1;
             placeLinks[currentFocusIndex].focus();
+            announce('Place ' + (currentFocusIndex + 1) + ' of ' + placeLinks.length);
           }
           break;
 
@@ -120,6 +136,7 @@
             e.preventDefault();
             currentFocusIndex--;
             placeLinks[currentFocusIndex].focus();
+            announce('Place ' + (currentFocusIndex + 1) + ' of ' + placeLinks.length);
           }
           break;
 
@@ -128,6 +145,7 @@
             e.preventDefault();
             currentFocusIndex = 0;
             placeLinks[0].focus();
+            announce('First place');
           }
           break;
 
@@ -136,7 +154,12 @@
             e.preventDefault();
             currentFocusIndex = placeLinks.length - 1;
             placeLinks[currentFocusIndex].focus();
+            announce('Last place');
           }
+          break;
+          
+        case '?':
+          announce('Use arrow keys to navigate places, Enter to select, Home for first, End for last');
           break;
       }
     });
@@ -162,5 +185,23 @@
   }
   table tr {
     cursor: default;
+  }
+  
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    table tr,
+    table a span {
+      transition: none !important;
+    }
+  }
+  
+  /* High contrast mode support */
+  @media (forced-colors: active) {
+    table a:focus {
+      outline: 3px solid CanvasText;
+    }
+    .lazy-placeholder {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
