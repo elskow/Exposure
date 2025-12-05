@@ -248,6 +248,10 @@ defmodule ExposureWeb.AdminController do
             Exposure.invalidate_places_cache()
             Log.info("admin.place.created", place_id: place.id, name: valid_name)
             Log.emit(:place_create, %{count: 1}, %{place_id: place.id})
+
+            # Regenerate home OG (place count changed)
+            Exposure.Workers.OgImageWorker.queue_home_og()
+
             redirect(conn, to: ~p"/admin/edit/#{place.id}")
 
           {:error, changeset} ->
@@ -309,6 +313,10 @@ defmodule ExposureWeb.AdminController do
             {:ok, updated_place} ->
               Exposure.invalidate_places_cache()
               Log.info("admin.place.updated", place_id: updated_place.id)
+
+              # Regenerate place gallery OG (name/location/dates might have changed)
+              Exposure.Workers.OgImageWorker.queue_place_og(updated_place.id)
+
               redirect(conn, to: ~p"/admin")
 
             {:error, _changeset} ->
@@ -337,6 +345,10 @@ defmodule ExposureWeb.AdminController do
         Exposure.invalidate_places_cache()
         Log.info("admin.place.deleted", place_id: valid_id)
         Log.emit(:place_delete, %{count: 1}, %{place_id: valid_id})
+
+        # Regenerate home OG (place count changed)
+        Exposure.Workers.OgImageWorker.queue_home_og()
+
         json(conn, %{success: true, message: "Place deleted successfully"})
       else
         conn
@@ -444,6 +456,10 @@ defmodule ExposureWeb.AdminController do
         case Photo.upload_photos(valid_id, file_list) do
           {:ok, count} ->
             Exposure.invalidate_places_cache()
+
+            # Regenerate place gallery OG (photo count changed, maybe first photo added)
+            Exposure.Workers.OgImageWorker.queue_place_og(valid_id)
+
             json(conn, %{success: true, message: "Uploaded #{count} photo(s)", count: count})
 
           {:error, msg} ->
@@ -468,6 +484,10 @@ defmodule ExposureWeb.AdminController do
       if Photo.delete_photo(valid_place_id, valid_photo_num) do
         Exposure.invalidate_places_cache()
         Log.info("admin.photo.deleted", place_id: valid_place_id, photo_num: valid_photo_num)
+
+        # Regenerate place gallery OG (photo count changed)
+        Exposure.Workers.OgImageWorker.queue_place_og(valid_place_id)
+
         json(conn, %{success: true, message: "Photo deleted successfully"})
       else
         conn
@@ -547,6 +567,12 @@ defmodule ExposureWeb.AdminController do
          {:ok, valid_photo_num} <- InputValidation.validate_id(valid_photo_num, "Photo number") do
       if Photo.set_favorite(valid_place_id, valid_photo_num, is_favorite) do
         Exposure.invalidate_places_cache()
+
+        # Regenerate place gallery OG when favorite photo changes
+        # This applies to both setting AND unsetting - when unsetting,
+        # the OG should update to use the first photo instead
+        Exposure.Workers.OgImageWorker.queue_place_og(valid_place_id)
+
         message = if is_favorite, do: "Photo set as favorite", else: "Favorite removed"
         json(conn, %{success: true, message: message})
       else

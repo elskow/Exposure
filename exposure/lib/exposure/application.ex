@@ -38,6 +38,9 @@ defmodule Exposure.Application do
     # Sync admin users after supervision tree is started
     sync_admin_users()
 
+    # Ensure OG images exist (generate if missing)
+    ensure_og_images()
+
     result
   end
 
@@ -55,6 +58,52 @@ defmodule Exposure.Application do
       # Small delay to ensure Repo is fully ready
       Process.sleep(100)
       Exposure.Services.AdminSync.sync()
+    end)
+  end
+
+  defp ensure_og_images do
+    # Queue OG image generation for any missing images on startup
+    # This runs async to not block startup
+    Task.Supervisor.start_child(Exposure.TaskSupervisor, fn ->
+      # Wait for Oban to be ready
+      Process.sleep(500)
+
+      try do
+        alias Exposure.Services.{OgImageGenerator, PathValidation}
+        alias Exposure.Workers.OgImageWorker
+
+        # Generate home OG if missing
+        home_og_path = OgImageGenerator.home_og_path()
+
+        unless File.exists?(home_og_path) do
+          Logger.info("Queueing home OG image generation (missing)")
+          OgImageWorker.queue_home_og()
+        end
+
+        # Generate place gallery OGs for any places missing them
+        alias Exposure.{Repo, Place}
+
+        Place
+        |> Repo.all()
+        |> Enum.each(fn place ->
+          # Use PathValidation for consistent path resolution across dev/prod
+          case PathValidation.get_photo_directory(place.id) do
+            {:ok, place_dir} ->
+              place_og_path = Path.join(place_dir, OgImageGenerator.get_place_og_filename())
+
+              unless File.exists?(place_og_path) do
+                Logger.info("Queueing place OG image generation for place #{place.id} (missing)")
+                OgImageWorker.queue_place_og(place.id)
+              end
+
+            {:error, reason} ->
+              Logger.warning("Could not resolve path for place #{place.id}: #{reason}")
+          end
+        end)
+      rescue
+        e ->
+          Logger.error("Failed to check OG images on startup: #{Exception.message(e)}")
+      end
     end)
   end
 end

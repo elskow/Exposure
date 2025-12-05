@@ -1,6 +1,7 @@
 defmodule ExposureWeb.PlaceController do
   use ExposureWeb, :controller
   alias ExposureWeb.ViewHelpers
+  alias Exposure.Services.OgImageGenerator
 
   def index(conn, %{"country" => country, "location" => location, "name" => name}) do
     case Exposure.get_place_by_slugs(country, location, name) do
@@ -38,15 +39,11 @@ defmodule ExposureWeb.PlaceController do
           photos: photos
         }
 
-        # Find favorite photo for OG image (absolute URL required)
-        favorite_photo = Enum.find(photos, fn p -> p.is_favorite end) || List.first(photos)
-
+        # Use place gallery OG image (magazine cover style)
         og_image =
-          if favorite_photo do
-            base_name = Path.rootname(favorite_photo.file_name)
-            # Use OG image with text overlay if available, fallback to medium thumbnail
-            ViewHelpers.absolute_url("/images/places/#{place.id}/#{base_name}-og.jpg")
-          end
+          ViewHelpers.absolute_url(
+            "/images/places/#{place.id}/#{OgImageGenerator.get_place_og_filename()}"
+          )
 
         canonical_url = ViewHelpers.absolute_url("/places/#{country}/#{location}/#{name}")
         home_url = ViewHelpers.absolute_url("/")
@@ -247,5 +244,4 @@ defmodule ExposureWeb.PlaceController do
         end
     end
   end
-
 end

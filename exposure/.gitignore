@@ -42,3 +42,6 @@ npm-debug.log
 # Uploaded photos (user content)
 /priv/static/images/places/*/
 !/priv/static/images/places/.gitkeep
+
+# Generated OG images (dynamic content)
+/priv/static/images/home-og.jpg
