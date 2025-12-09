@@ -10,7 +10,7 @@ defmodule ExposureWeb.Telemetry do
 
   @impl true
   def init(_arg) do
-    # Attach telemetry handlers for New Relic integration
+    # Attach telemetry handlers for Datadog integration
     attach_handlers()
 
     # Attach Bandit error handler for protocol errors (oversized headers, etc.)
@@ -28,129 +28,61 @@ defmodule ExposureWeb.Telemetry do
   end
 
   # ==========================================================================
-  # New Relic Telemetry Handlers
+  # Datadog Telemetry Handlers
   # ==========================================================================
 
   defp attach_handlers do
-    # Ecto query telemetry -> New Relic
+    # Ecto query telemetry -> log slow queries
     :telemetry.attach(
-      "exposure-ecto-new-relic",
+      "exposure-ecto-datadog",
       [:exposure, :repo, :query],
       &__MODULE__.handle_ecto_query/4,
       nil
     )
 
-    # Oban job telemetry -> New Relic
-    :telemetry.attach_many(
-      "exposure-oban-new-relic",
-      [
-        [:oban, :job, :start],
-        [:oban, :job, :stop],
-        [:oban, :job, :exception]
-      ],
-      &__MODULE__.handle_oban_event/4,
-      nil
-    )
+    # NOTE: Oban job tracing is handled directly in workers via Log.with_transaction()
+    # to avoid duplicate trace conflicts. Workers have full control over their trace lifecycle.
 
-    # Phoenix request telemetry -> New Relic custom attributes
+    # Phoenix request telemetry -> Datadog span tags
     :telemetry.attach(
-      "exposure-phoenix-new-relic",
+      "exposure-phoenix-datadog",
       [:phoenix, :router_dispatch, :stop],
       &__MODULE__.handle_phoenix_request/4,
       nil
     )
 
-    Logger.debug("Telemetry handlers attached for New Relic integration")
+    Logger.debug("Telemetry handlers attached for Datadog integration")
   end
 
   @doc false
-  # Handle Ecto query events - report slow queries to New Relic
+  # Handle Ecto query events - log slow queries
   def handle_ecto_query(_event, measurements, metadata, _config) do
     # Convert to milliseconds
     total_time_ms =
       System.convert_time_unit(measurements[:total_time] || 0, :native, :millisecond)
 
-    query_time_ms =
-      System.convert_time_unit(measurements[:query_time] || 0, :native, :millisecond)
-
-    queue_time_ms =
-      System.convert_time_unit(measurements[:queue_time] || 0, :native, :millisecond)
-
-    # Report as custom metric for aggregate monitoring
-    NewRelic.report_custom_metric("Datastore/SQLite/all", total_time_ms)
-
-    # For slow queries (>100ms), add custom event for analysis
+    # For slow queries (>100ms), log for analysis
     if total_time_ms > 100 do
-      NewRelic.report_custom_event("SlowQuery", %{
+      Logger.warning("Slow query detected",
         query: String.slice(metadata[:query] || "", 0, 500),
         total_time_ms: total_time_ms,
-        query_time_ms: query_time_ms,
-        queue_time_ms: queue_time_ms,
         source: metadata[:source]
-      })
+      )
     end
   end
 
   @doc false
-  # Handle Oban job events
-  def handle_oban_event([:oban, :job, :start], _measurements, metadata, _config) do
-    # Add job info as transaction attributes
-    NewRelic.add_attributes(
-      oban_worker: metadata.job.worker,
-      oban_queue: metadata.job.queue,
-      oban_attempt: metadata.job.attempt
-    )
-  end
-
-  def handle_oban_event([:oban, :job, :stop], measurements, metadata, _config) do
-    duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
-
-    queue_time_ms =
-      System.convert_time_unit(measurements[:queue_time] || 0, :native, :millisecond)
-
-    # Report job completion metrics
-    NewRelic.report_custom_metric("Oban/#{metadata.job.worker}/Duration", duration_ms)
-    NewRelic.report_custom_metric("Oban/#{metadata.job.worker}/QueueTime", queue_time_ms)
-
-    # Report custom event for job analytics
-    NewRelic.report_custom_event("ObanJob", %{
-      worker: metadata.job.worker,
-      queue: to_string(metadata.job.queue),
-      state: to_string(metadata.state),
-      attempt: metadata.job.attempt,
-      duration_ms: duration_ms,
-      queue_time_ms: queue_time_ms
-    })
-  end
-
-  def handle_oban_event([:oban, :job, :exception], measurements, metadata, _config) do
-    duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
-
-    # Report job failure metrics
-    NewRelic.increment_custom_metric("Oban/#{metadata.job.worker}/Error")
-
-    # Report error event
-    NewRelic.report_custom_event("ObanJobError", %{
-      worker: metadata.job.worker,
-      queue: to_string(metadata.job.queue),
-      attempt: metadata.job.attempt,
-      max_attempts: metadata.job.max_attempts,
-      duration_ms: duration_ms,
-      error_kind: to_string(metadata[:kind]),
-      error_reason: inspect(metadata[:reason]) |> String.slice(0, 500)
-    })
-  end
-
-  @doc false
-  # Handle Phoenix request completion - add route info
+  # Handle Phoenix request completion - add route info to span
   def handle_phoenix_request(_event, measurements, metadata, _config) do
     duration_ms = System.convert_time_unit(measurements[:duration] || 0, :native, :millisecond)
 
-    # Add route-specific attributes to current transaction
-    NewRelic.add_attributes(
-      phoenix_controller: inspect(metadata[:plug]),
-      phoenix_action: metadata[:plug_opts],
-      request_duration_ms: duration_ms
+    # Add route-specific tags to current span
+    Exposure.Tracer.update_span(
+      tags: [
+        "phoenix.controller": inspect(metadata[:plug]),
+        "phoenix.action": metadata[:plug_opts],
+        "request.duration_ms": duration_ms
+      ]
     )
   end
 
@@ -265,44 +197,42 @@ defmodule ExposureWeb.Telemetry do
       counter("exposure.auth_login.count",
         tags: [:method, :success],
         description: "Login attempts by method and outcome"
+      ),
+
+      # Oban Jobs
+      counter("exposure.oban_job.count",
+        tags: [:worker, :queue, :state],
+        description: "Oban job completions"
+      ),
+      summary("exposure.oban_job.duration_ms",
+        tags: [:worker],
+        unit: :millisecond,
+        description: "Oban job duration"
+      ),
+      counter("exposure.oban_job_error.count",
+        tags: [:worker, :queue],
+        description: "Oban job errors"
       )
     ]
   end
 
   defp periodic_measurements do
     [
-      # Report VM metrics to New Relic periodically
+      # Report VM metrics periodically
       {__MODULE__, :report_vm_metrics, []}
     ]
   end
 
   @doc false
   def report_vm_metrics do
-    # Name this background task so it doesn't appear as "Unknown" in New Relic
-    NewRelic.set_transaction_name("Background/TelemetryPoller/report_vm_metrics")
-
     # Memory metrics (in MB)
     memory = :erlang.memory()
-    total_mb = trunc(memory[:total] / 1_048_576)
-    processes_mb = trunc(memory[:processes] / 1_048_576)
-    binary_mb = trunc(memory[:binary] / 1_048_576)
-    ets_mb = trunc(memory[:ets] / 1_048_576)
-
-    NewRelic.report_custom_metric("VM/Memory/Total", total_mb)
-    NewRelic.report_custom_metric("VM/Memory/Processes", processes_mb)
-    NewRelic.report_custom_metric("VM/Memory/Binary", binary_mb)
-    NewRelic.report_custom_metric("VM/Memory/ETS", ets_mb)
-
-    # Process metrics
-    process_count = :erlang.system_info(:process_count)
-    NewRelic.report_custom_metric("VM/Processes/Count", process_count)
-
-    # Run queue lengths (indicator of scheduler load)
-    run_queue = :erlang.statistics(:run_queue)
-    NewRelic.report_custom_metric("VM/RunQueue/Total", run_queue)
 
     # Emit telemetry for local metrics
     :telemetry.execute([:vm, :memory], %{total: memory[:total]}, %{})
+
+    # Run queue lengths (indicator of scheduler load)
+    run_queue = :erlang.statistics(:run_queue)
     :telemetry.execute([:vm, :total_run_queue_lengths], %{total: run_queue}, %{})
   end
 end

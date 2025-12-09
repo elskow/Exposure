@@ -54,7 +54,7 @@ defmodule Exposure.Workers.OgImageWorker do
     trace_id = Map.get(args, "trace_id")
 
     Log.with_transaction("Oban", "OgImageWorker/place", trace_id, fn ->
-      NewRelic.add_attributes(place_id: place_id)
+      Exposure.Tracer.update_span(tags: [place_id: place_id])
       generate_place_og(place_id)
     end)
   end
@@ -65,7 +65,7 @@ defmodule Exposure.Workers.OgImageWorker do
     trace_id = Map.get(args, "trace_id")
 
     Log.with_transaction("Oban", "OgImageWorker/photo", trace_id, fn ->
-      NewRelic.add_attributes(place_id: place_id)
+      Exposure.Tracer.update_span(tags: [place_id: place_id])
       generate_photo_og(place_id, file_name)
     end)
   end

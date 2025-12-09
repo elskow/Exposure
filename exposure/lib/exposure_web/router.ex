@@ -9,17 +9,17 @@ defmodule ExposureWeb.Router do
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
     plug(ExposureWeb.Plugs.SecurityHeaders)
-    plug(ExposureWeb.Plugs.NewRelicTransaction)
+    plug(ExposureWeb.Plugs.DatadogTrace)
   end
 
   pipeline :api do
     plug(:accepts, ["json"])
-    plug(ExposureWeb.Plugs.NewRelicTransaction)
+    plug(ExposureWeb.Plugs.DatadogTrace)
   end
 
   pipeline :seo do
     plug(:accepts, ["xml", "text"])
-    plug(ExposureWeb.Plugs.NewRelicTransaction)
+    plug(ExposureWeb.Plugs.DatadogTrace)
   end
 
   pipeline :admin do
@@ -30,7 +30,7 @@ defmodule ExposureWeb.Router do
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
     plug(ExposureWeb.Plugs.SecurityHeaders)
-    plug(ExposureWeb.Plugs.NewRelicTransaction)
+    plug(ExposureWeb.Plugs.DatadogTrace)
   end
 
   scope "/", ExposureWeb do

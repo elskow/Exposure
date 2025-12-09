@@ -8,8 +8,25 @@ defmodule Exposure.Application do
 
   @impl true
   def start(_type, _args) do
+    # Get Datadog API server options from config
+    # In production, these come from runtime.exs; in dev, defaults are used
+    spandex_opts =
+      Application.get_env(:spandex_datadog, SpandexDatadog.ApiServer, [])
+      |> Keyword.put_new(:host, "localhost")
+      |> Keyword.put_new(:port, 8126)
+      |> Keyword.put_new(:batch_size, 10)
+      |> Keyword.put_new(:sync_threshold, 100)
+      |> Keyword.put_new(:http, HTTPoison)
+
+    # Log Datadog APM configuration at startup
+    Logger.info(
+      "Starting SpandexDatadog.ApiServer with host=#{spandex_opts[:host]} port=#{spandex_opts[:port]}"
+    )
+
     children = [
       ExposureWeb.Telemetry,
+      # Datadog APM API server for sending traces - must be started before Repo and Endpoint
+      {SpandexDatadog.ApiServer, spandex_opts},
       Exposure.Repo,
       {DNSCluster, query: Application.get_env(:exposure, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Exposure.PubSub},
@@ -34,6 +51,9 @@ defmodule Exposure.Application do
 
     # Initialize persistent_term config cache
     Exposure.Services.FileValidation.init_config()
+
+    # Install Spandex Phoenix telemetry handlers for Datadog tracing
+    SpandexPhoenix.Telemetry.install()
 
     # Sync admin users after supervision tree is started
     sync_admin_users()

@@ -72,11 +72,17 @@ defmodule Exposure.MixProject do
       {:eqrcode, "~> 0.2.1"},
       # OIDC authentication
       {:openid_connect, "~> 1.0"},
-      # New Relic APM agent
-      {:new_relic_agent, "~> 1.0"},
+      # Datadog APM (distributed tracing)
+      {:spandex, "~> 3.2"},
+      {:spandex_datadog, "~> 1.4"},
+      # Telemetry integration for Datadog
+      {:spandex_phoenix, "~> 1.1"},
+      {:spandex_ecto, "~> 0.7"},
+      # HTTP client for Datadog API
+      {:httpoison, "~> 2.0"},
       # Job queue for background processing
       {:oban, "~> 2.20"},
-      # JSON logging for production (New Relic logs_in_context)
+      # JSON logging for production (Datadog log correlation)
       {:logger_json, "~> 7.0"}
     ]
   end

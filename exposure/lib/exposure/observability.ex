@@ -3,7 +3,7 @@ defmodule Exposure.Observability do
   Centralized observability module for structured logging, telemetry, and tracing.
 
   Provides consistent logging patterns with automatic trace ID propagation,
-  structured metadata, telemetry events, and integration with New Relic APM.
+  structured metadata, telemetry events, and integration with Datadog APM.
 
   ## Usage
 
@@ -39,6 +39,8 @@ defmodule Exposure.Observability do
   """
 
   require Logger
+  alias Exposure.Tracer
+  require Tracer
 
   @type metadata :: keyword()
   @type event :: String.t()
@@ -48,24 +50,24 @@ defmodule Exposure.Observability do
   # =============================================================================
 
   @doc """
-  Gets the current trace ID from New Relic context, Logger metadata, or generates a new one.
+  Gets the current trace ID from Datadog context, Logger metadata, or generates a new one.
 
   Priority:
-  1. New Relic distributed trace ID (if in a transaction)
+  1. Datadog distributed trace ID (if in a span)
   2. Logger metadata trace_id (for background jobs)
   3. Generate new trace ID (fallback)
   """
   @spec current_trace_id() :: String.t()
   def current_trace_id do
-    case new_relic_trace_id() do
+    case datadog_trace_id() do
       nil ->
         case Logger.metadata()[:trace_id] do
           nil -> generate_trace_id()
           id -> id
         end
 
-      nr_trace_id ->
-        nr_trace_id
+      dd_trace_id ->
+        dd_trace_id
     end
   end
 
@@ -78,22 +80,23 @@ defmodule Exposure.Observability do
   end
 
   @doc """
-  Gets the New Relic distributed trace ID if available.
-  Returns nil if not in a New Relic transaction.
+  Gets the Datadog distributed trace ID if available.
+  Returns nil if not in a Datadog span.
   """
-  @spec new_relic_trace_id() :: String.t() | nil
-  def new_relic_trace_id do
-    case NewRelic.DistributedTrace.get_tracing_context() do
-      %{trace_id: trace_id} when is_binary(trace_id) -> trace_id
-      _ -> nil
+  @spec datadog_trace_id() :: String.t() | nil
+  def datadog_trace_id do
+    case Tracer.current_trace_id() do
+      {:ok, trace_id} when is_integer(trace_id) ->
+        Integer.to_string(trace_id, 16) |> String.downcase()
+
+      _ ->
+        nil
     end
   end
 
   @doc """
   Executes a function with a trace ID set in Logger metadata.
   Useful for background jobs that need trace correlation.
-
-  Also starts a New Relic "Other" transaction if headers are provided.
   """
   @spec with_trace_id(String.t() | nil, (-> result)) :: result when result: any()
   def with_trace_id(nil, fun), do: with_trace_id(generate_trace_id(), fun)
@@ -110,8 +113,13 @@ defmodule Exposure.Observability do
   end
 
   @doc """
-  Executes a function within a New Relic "Other" transaction.
-  Use for background jobs that should appear as separate transactions.
+  Executes a function within a Datadog trace span.
+  Use for background jobs that should appear as separate traces.
+
+  This function properly handles the trace lifecycle for Oban jobs by:
+  1. Starting a fresh trace (not a child span)
+  2. Cleaning up any existing trace context first
+  3. Properly finishing the trace when done
 
   ## Example
 
@@ -122,22 +130,32 @@ defmodule Exposure.Observability do
   @spec with_transaction(String.t(), String.t(), String.t() | nil, (-> result)) :: result
         when result: any()
   def with_transaction(category, name, trace_id, fun) do
-    headers =
-      if trace_id do
-        # Create W3C traceparent header for distributed trace continuity
-        %{
-          "traceparent" => "00-#{String.pad_leading(trace_id, 32, "0")}-#{generate_trace_id()}-01"
-        }
-      else
-        %{}
-      end
+    resource = "#{category}/#{name}"
 
-    NewRelic.start_transaction(category, name, headers)
+    # For Oban jobs, we need to start a fresh trace, not continue an existing one.
+    # First, ensure no stale trace context exists in this process.
+    # Spandex stores trace context in the process dictionary.
+    # We use start_trace which creates a new root trace.
+    case Tracer.start_trace(resource, service: :exposure, resource: resource) do
+      {:ok, _trace} ->
+        Tracer.update_span(tags: [category: category, job_name: name])
 
-    try do
-      with_trace_id(trace_id, fun)
-    after
-      NewRelic.stop_transaction()
+        try do
+          with_trace_id(trace_id, fun)
+        after
+          Tracer.finish_trace()
+        end
+
+      {:error, :trace_running} ->
+        # A trace is already running (shouldn't happen for Oban jobs, but handle it)
+        # Just run the function within the existing trace context
+        Tracer.update_span(tags: [category: category, job_name: name])
+        with_trace_id(trace_id, fun)
+
+      {:error, reason} ->
+        # If tracing fails to start, still run the function
+        warning("trace.start.failed", category: category, name: name, reason: inspect(reason))
+        with_trace_id(trace_id, fun)
     end
   end
 
@@ -161,7 +179,7 @@ defmodule Exposure.Observability do
   @spec info(event(), metadata()) :: :ok
   def info(event, metadata \\ []) do
     Logger.info(fn -> format_message(event, metadata) end, build_metadata(event, metadata))
-    add_nr_attributes(event, metadata)
+    add_span_tags(event, metadata)
   end
 
   @doc """
@@ -171,7 +189,7 @@ defmodule Exposure.Observability do
   @spec warning(event(), metadata()) :: :ok
   def warning(event, metadata \\ []) do
     Logger.warning(fn -> format_message(event, metadata) end, build_metadata(event, metadata))
-    add_nr_attributes(event, metadata)
+    add_span_tags(event, metadata)
   end
 
   @doc """
@@ -181,12 +199,12 @@ defmodule Exposure.Observability do
   @spec error(event(), metadata()) :: :ok
   def error(event, metadata \\ []) do
     Logger.error(fn -> format_message(event, metadata) end, build_metadata(event, metadata))
-    add_nr_attributes(event, metadata)
+    add_span_tags(event, metadata)
   end
 
   @doc """
   Logs an exception with full stacktrace at error level.
-  Also reports the error to New Relic with full context.
+  Also marks the current span as error in Datadog.
   """
   @spec exception(event(), Exception.t(), Exception.stacktrace(), metadata()) :: :ok
   def exception(event, exception, stacktrace, metadata \\ []) do
@@ -200,21 +218,21 @@ defmodule Exposure.Observability do
       build_metadata(event, error_metadata)
     )
 
-    # Add error context as transaction attributes before reporting
-    error_attrs =
+    # Mark the span as error in Datadog
+    Tracer.span_error(exception, stacktrace)
+
+    # Add error context as span tags
+    error_tags =
       metadata
       |> Keyword.take([:place_id, :photo_id, :photo_num, :count, :duration_ms, :attempt])
       |> Keyword.put(:event, event)
       |> Keyword.put(:error_class, inspect(exception.__struct__))
 
-    NewRelic.add_attributes(error_attrs)
-
-    # Report to New Relic for error tracking
-    NewRelic.notice_error(exception, stacktrace)
+    Tracer.update_span(tags: error_tags)
   end
 
   @doc """
-  Measures execution time of a function, logs it, emits telemetry, and adds span attributes.
+  Measures execution time of a function, logs it, emits telemetry, and adds span tags.
   Returns the function result.
 
   ## Options
@@ -231,46 +249,45 @@ defmodule Exposure.Observability do
   def measure(event, metadata \\ [], fun) do
     {opts, metadata} = Keyword.split(metadata, [:telemetry_event])
     telemetry_event = Keyword.get(opts, :telemetry_event)
-    start = System.monotonic_time(:microsecond)
 
-    # Add span attributes for this operation
-    NewRelic.add_attributes(operation: event)
+    # Create a span for this operation
+    Tracer.trace event, service: :exposure, resource: event do
+      Tracer.update_span(tags: [operation: event])
+      start = System.monotonic_time(:microsecond)
 
-    try do
-      result = fun.()
-      duration_us = System.monotonic_time(:microsecond) - start
-      duration_ms = Float.round(duration_us / 1000, 2)
-
-      info(
-        "#{event}.completed",
-        Keyword.merge(metadata, duration_ms: duration_ms)
-      )
-
-      if telemetry_event do
-        emit(telemetry_event, %{duration_ms: duration_ms}, Map.new(metadata))
-        # Also report as New Relic custom metric for dashboards
-        record_metric("#{telemetry_event}/Duration", duration_ms)
-      end
-
-      result
-    rescue
-      e ->
+      try do
+        result = fun.()
         duration_us = System.monotonic_time(:microsecond) - start
         duration_ms = Float.round(duration_us / 1000, 2)
 
-        exception(
-          "#{event}.failed",
-          e,
-          __STACKTRACE__,
+        info(
+          "#{event}.completed",
           Keyword.merge(metadata, duration_ms: duration_ms)
         )
 
         if telemetry_event do
-          emit(:"#{telemetry_event}_error", %{duration_ms: duration_ms}, Map.new(metadata))
-          NewRelic.increment_custom_metric("#{telemetry_event}/Error")
+          emit(telemetry_event, %{duration_ms: duration_ms}, Map.new(metadata))
         end
 
-        reraise e, __STACKTRACE__
+        result
+      rescue
+        e ->
+          duration_us = System.monotonic_time(:microsecond) - start
+          duration_ms = Float.round(duration_us / 1000, 2)
+
+          exception(
+            "#{event}.failed",
+            e,
+            __STACKTRACE__,
+            Keyword.merge(metadata, duration_ms: duration_ms)
+          )
+
+          if telemetry_event do
+            emit(:"#{telemetry_event}_error", %{duration_ms: duration_ms}, Map.new(metadata))
+          end
+
+          reraise e, __STACKTRACE__
+      end
     end
   end
 
@@ -302,8 +319,8 @@ defmodule Exposure.Observability do
   end
 
   @doc """
-  Reports a custom event to New Relic Insights.
-  Use for business metrics that should be queryable in NRQL.
+  Reports a custom metric to Datadog via telemetry.
+  Use for business metrics that should be tracked.
 
   ## Example
 
@@ -315,12 +332,14 @@ defmodule Exposure.Observability do
   """
   @spec report_custom_event(String.t(), map()) :: :ok
   def report_custom_event(event_type, attributes) do
-    NewRelic.report_custom_event(event_type, attributes)
+    # Emit as telemetry event - can be picked up by Datadog StatsD integration
+    event_atom = event_type |> String.downcase() |> String.to_atom()
+    emit(event_atom, attributes, %{event_type: event_type})
     :ok
   end
 
   @doc """
-  Records a custom metric to New Relic for dashboards and alerting.
+  Records a custom metric via telemetry.
   Use for numeric measurements that should be aggregated over time.
 
   ## Parameters
@@ -335,12 +354,13 @@ defmodule Exposure.Observability do
   """
   @spec record_metric(String.t(), number()) :: :ok
   def record_metric(name, value) when is_number(value) do
-    NewRelic.report_custom_metric(name, value)
+    metric_atom = name |> String.replace("/", "_") |> String.downcase() |> String.to_atom()
+    emit(metric_atom, %{value: value}, %{metric_name: name})
     :ok
   end
 
   @doc """
-  Increment a counter metric in New Relic.
+  Increment a counter metric.
   Useful for tracking counts of events.
 
   ## Example
@@ -349,12 +369,11 @@ defmodule Exposure.Observability do
   """
   @spec increment_metric(String.t(), integer()) :: :ok
   def increment_metric(name, count \\ 1) when is_integer(count) do
-    NewRelic.increment_custom_metric(name, count)
-    :ok
+    record_metric(name, count)
   end
 
   @doc """
-  Wraps an external HTTP call and adds attributes for New Relic tracing.
+  Wraps an external HTTP call and traces it in Datadog.
   Use when making HTTP requests to external services.
 
   ## Example
@@ -365,21 +384,25 @@ defmodule Exposure.Observability do
   """
   @spec trace_external_call(String.t(), String.t(), (-> result)) :: result when result: any()
   def trace_external_call(host, method, fun) do
-    start = System.monotonic_time(:microsecond)
-    NewRelic.add_attributes(external_host: host, external_method: method)
+    resource = "#{method} #{host}"
 
-    try do
-      result = fun.()
-      duration_us = System.monotonic_time(:microsecond) - start
-      duration_ms = Float.round(duration_us / 1000, 2)
+    Tracer.trace resource, service: :external, resource: resource, type: :http do
+      Tracer.update_span(
+        tags: [
+          "http.host": host,
+          "http.method": method,
+          "span.kind": "client"
+        ]
+      )
 
-      # Report external call metric
-      NewRelic.report_custom_metric("External/#{host}/#{method}", duration_ms)
-      result
-    rescue
-      e ->
-        NewRelic.add_attributes(external_error: true)
-        reraise e, __STACKTRACE__
+      try do
+        result = fun.()
+        result
+      rescue
+        e ->
+          Tracer.span_error(e, __STACKTRACE__)
+          reraise e, __STACKTRACE__
+      end
     end
   end
 
@@ -405,24 +428,34 @@ defmodule Exposure.Observability do
   defp build_metadata(event, metadata) do
     base = [event: event]
 
+    # Add Datadog trace correlation
+    dd_metadata =
+      case {Tracer.current_trace_id(), Tracer.current_span_id()} do
+        {{:ok, trace_id}, {:ok, span_id}} ->
+          [dd: [trace_id: trace_id, span_id: span_id]]
+
+        _ ->
+          []
+      end
+
     # Add numeric values as separate metadata for indexing
     numeric_keys = [:place_id, :photo_id, :photo_num, :count, :duration_ms, :attempt, :size]
 
     numeric_metadata =
       Enum.filter(metadata, fn {k, _v} -> k in numeric_keys end)
 
-    base ++ numeric_metadata
+    base ++ dd_metadata ++ numeric_metadata
   end
 
-  # Adds attributes to the current New Relic transaction
-  defp add_nr_attributes(event, metadata) do
-    attrs =
+  # Adds tags to the current Datadog span
+  defp add_span_tags(event, metadata) do
+    tags =
       metadata
       |> Keyword.take([:place_id, :photo_id, :photo_num, :count, :duration_ms])
       |> Keyword.put(:event, event)
 
-    if attrs != [event: event] do
-      NewRelic.add_attributes(attrs)
+    if tags != [event: event] do
+      Tracer.update_span(tags: tags)
     end
 
     :ok

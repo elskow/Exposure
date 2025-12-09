@@ -20,8 +20,8 @@ config :swoosh, local: false
 # Do not print debug messages in production
 config :logger, level: :info
 
-# Use JSON formatter in production for New Relic logs_in_context
-# This ensures all metadata appears as searchable attributes in New Relic
+# Use JSON formatter in production for Datadog log correlation
+# This ensures all metadata appears as searchable attributes in Datadog Logs
 config :logger, :default_handler,
   formatter:
     {LoggerJSON.Formatters.Basic,
@@ -35,7 +35,9 @@ config :logger, :default_handler,
        :count,
        :duration_ms,
        :attempt,
-       :error_type
+       :error_type,
+       # Datadog trace correlation
+       :dd
      ],
      redactors: []}
 

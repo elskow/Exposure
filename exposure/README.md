@@ -37,28 +37,30 @@ Ready to run in production? Please [check our deployment guides](https://hexdocs
 | `OIDC_ALLOWED_EMAILS` | Comma-separated allowed emails |
 | `OIDC_ALLOWED_DOMAINS` | Comma-separated allowed email domains |
 
-### New Relic APM (Optional)
+### Datadog APM (Optional)
 
-New Relic monitoring is disabled by default. To enable:
+Datadog APM monitoring requires a running Datadog Agent. Tracing is enabled in production by default.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NEW_RELIC_LICENSE_KEY` | Your New Relic license key | - |
-| `NEW_RELIC_APP_NAME` | Application name in New Relic dashboard | `Exposure` |
-| `NEW_RELIC_LOGS_IN_CONTEXT` | Log shipping mode: `direct`, `forwarder`, or `disabled` | `direct` |
+| `DD_AGENT_HOST` | Datadog Agent hostname | `localhost` |
+| `DD_TRACE_AGENT_PORT` | Datadog Agent trace port | `8126` |
+| `DD_SERVICE` | Service name in Datadog | `exposure` |
+| `DD_ENV` | Environment name (e.g., `production`, `staging`) | `production` |
 
 Example:
 ```bash
-export NEW_RELIC_LICENSE_KEY=your-license-key
-export NEW_RELIC_APP_NAME="Exposure Production"
+export DD_AGENT_HOST=datadog-agent
+export DD_ENV=production
+export DD_SERVICE=exposure
 ```
 
 **Features enabled automatically:**
-- Transaction tracing (Phoenix requests)
-- Database query monitoring (Ecto)
+- Distributed tracing (Phoenix requests)
+- Database query tracing (Ecto via SpandexEcto)
+- Background job tracing (Oban)
 - Error tracking
-- BEAM VM metrics
-- Logs in Context (correlated logs with traces)
+- Log correlation (JSON logs with trace IDs)
 
 ## Learn more
 

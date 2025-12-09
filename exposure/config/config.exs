@@ -57,6 +57,20 @@ config :exposure, :orphan_cleanup,
   file_age_minutes: 30,
   dry_run: false
 
+# Datadog APM Tracer configuration
+# The tracer sends traces to the Datadog Agent (default: localhost:8126)
+config :exposure, Exposure.Tracer,
+  service: :exposure,
+  adapter: SpandexDatadog.Adapter,
+  disabled?: true,
+  env: "development"
+
+config :spandex_ecto, SpandexEcto.EctoLogger,
+  service: :exposure_db,
+  tracer: Exposure.Tracer
+
+config :spandex_phoenix, tracer: Exposure.Tracer
+
 # Oban job queue configuration
 # Uses SQLite Lite engine for background job processing
 config :exposure, Oban,

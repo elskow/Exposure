@@ -53,9 +53,9 @@ defmodule Exposure.Workers.ThumbnailWorker do
     # Propagate trace ID from the original request if available
     trace_id = Map.get(args, "trace_id")
 
-    # Use New Relic transaction for background job visibility
+    # Use Datadog transaction for background job visibility
     Log.with_transaction("Oban", "ThumbnailWorker", trace_id, fn ->
-      NewRelic.add_attributes(photo_id: photo_id, place_id: place_id, attempt: attempt)
+      Exposure.Tracer.update_span(tags: [photo_id: photo_id, place_id: place_id, attempt: attempt])
       do_perform(photo_id, place_id, file_name, attempt, max_attempts)
     end)
   end

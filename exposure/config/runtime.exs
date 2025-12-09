@@ -269,45 +269,39 @@ if config_env() == :prod do
     secret_key_base: secret_key_base
 
   # =============================================================================
-  # New Relic APM Configuration
+  # Datadog APM Configuration
   # =============================================================================
-  # Required: NEW_RELIC_LICENSE_KEY - Your New Relic license key
-  # Optional: NEW_RELIC_APP_NAME - Application name in New Relic (default: "Exposure")
-  # Optional: NEW_RELIC_LOGS_IN_CONTEXT - Log shipping mode: "direct", "forwarder", or "disabled"
+  # Required: DD_AGENT_HOST - Datadog Agent host (default: "localhost")
+  # Optional: DD_TRACE_AGENT_PORT - Datadog Agent trace port (default: 8126)
+  # Optional: DD_SERVICE - Service name (default: "exposure")
+  # Optional: DD_ENV - Environment name (default: "production")
   #
-  # To disable New Relic in production, set NEW_RELIC_LICENSE_KEY to empty or don't set it.
+  # The Datadog Agent must be running and accessible for traces to be collected.
+  # In Docker/Kubernetes, typically set DD_AGENT_HOST to the agent's service name.
   #
   # Example:
-  #   NEW_RELIC_LICENSE_KEY=your-license-key
-  #   NEW_RELIC_APP_NAME=Exposure Production
+  #   DD_AGENT_HOST=datadog-agent
+  #   DD_ENV=production
+  #   DD_SERVICE=exposure
 
-  new_relic_key = System.get_env("NEW_RELIC_LICENSE_KEY")
+  dd_agent_host = System.get_env("DD_AGENT_HOST", "localhost")
+  dd_agent_port = String.to_integer(System.get_env("DD_TRACE_AGENT_PORT", "8126"))
+  dd_service = System.get_env("DD_SERVICE", "exposure")
+  dd_env = System.get_env("DD_ENV", "production")
 
-  if new_relic_key && new_relic_key != "" do
-    # Parse logs_in_context mode
-    logs_mode =
-      case System.get_env("NEW_RELIC_LOGS_IN_CONTEXT", "direct") do
-        "direct" -> :direct
-        "forwarder" -> :forwarder
-        _ -> :disabled
-      end
+  # Enable Datadog tracing in production
+  config :exposure, Exposure.Tracer,
+    service: String.to_atom(dd_service),
+    adapter: SpandexDatadog.Adapter,
+    disabled?: false,
+    env: dd_env
 
-    config :new_relic_agent,
-      app_name: System.get_env("NEW_RELIC_APP_NAME", "Exposure"),
-      license_key: new_relic_key,
-      logs_in_context: logs_mode
-
-    # Optional: Ignore health check paths to reduce noise
-    config :new_relic_agent,
-      ignore_paths: [
-        "/health",
-        ~r/phoenix\/live_reload/
-      ]
-  else
-    # Disable New Relic if no license key
-    config :new_relic_agent,
-      license_key: nil
-  end
+  config :spandex_datadog, SpandexDatadog.ApiServer,
+    host: dd_agent_host,
+    port: dd_agent_port,
+    batch_size: 10,
+    sync_threshold: 100,
+    http: HTTPoison
 
   # ## SSL Support
   #

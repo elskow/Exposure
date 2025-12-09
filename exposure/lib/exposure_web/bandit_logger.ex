@@ -4,7 +4,7 @@ defmodule ExposureWeb.BanditLogger do
 
   Handles protocol errors (like oversized headers) gracefully by:
   - Logging them as warnings instead of errors (since they're usually bots/attacks)
-  - Tracking them in New Relic as custom events for monitoring
+  - Emitting telemetry events for monitoring
   - Providing structured logging with relevant context
 
   ## Common Errors Handled
@@ -62,13 +62,12 @@ defmodule ExposureWeb.BanditLogger do
       category: "security"
     )
 
-    # Track in New Relic for monitoring attack patterns
-    NewRelic.report_custom_event("HTTPProtocolError", %{
-      error_type: error_type,
-      error_message: String.slice(error_message, 0, 200)
-    })
-
-    NewRelic.increment_custom_metric("Security/ProtocolError/#{error_type}")
+    # Emit telemetry for monitoring attack patterns
+    :telemetry.execute(
+      [:exposure, :http_protocol_error],
+      %{count: 1},
+      %{error_type: error_type}
+    )
   end
 
   defp extract_error_message(%{message: message}) when is_binary(message), do: message

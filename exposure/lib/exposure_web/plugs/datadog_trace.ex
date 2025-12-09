@@ -1,11 +1,11 @@
-defmodule ExposureWeb.Plugs.NewRelicTransaction do
+defmodule ExposureWeb.Plugs.DatadogTrace do
   @moduledoc """
-  Plug that sets the New Relic transaction name based on Phoenix routing.
+  Plug that sets the Datadog span resource name based on Phoenix routing.
 
-  This ensures transactions appear with meaningful names in New Relic APM
-  instead of "Unknown".
+  This ensures traces appear with meaningful names in Datadog APM
+  instead of generic path names.
 
-  The transaction name format is: "Controller/action" (e.g., "PlaceController/index")
+  The resource name format is: "Controller#action" (e.g., "PlaceController#index")
 
   ## Usage
 
@@ -13,11 +13,16 @@ defmodule ExposureWeb.Plugs.NewRelicTransaction do
 
       pipeline :browser do
         # ... other plugs
-        plug ExposureWeb.Plugs.NewRelicTransaction
+        plug ExposureWeb.Plugs.DatadogTrace
       end
+
+  Note: This plug complements SpandexPhoenix which handles the actual
+  tracing. This plug just sets better resource names.
   """
 
   import Plug.Conn
+  alias Exposure.Tracer
+
   @behaviour Plug
 
   @impl Plug
@@ -26,31 +31,42 @@ defmodule ExposureWeb.Plugs.NewRelicTransaction do
   @impl Plug
   def call(conn, _opts) do
     register_before_send(conn, fn conn ->
-      set_transaction_name(conn)
+      set_resource_name(conn)
       conn
     end)
   end
 
-  defp set_transaction_name(conn) do
+  defp set_resource_name(conn) do
     controller = conn.private[:phoenix_controller]
     action = conn.private[:phoenix_action]
 
     cond do
       controller && action ->
-        # Format: "ControllerName/action"
+        # Format: "ControllerName#action" (Datadog convention)
         controller_name =
           controller
           |> Module.split()
           |> List.last()
 
-        NewRelic.set_transaction_name("#{controller_name}/#{action}")
+        resource = "#{controller_name}##{action}"
+
+        Tracer.update_span(
+          resource: resource,
+          tags: [
+            "phoenix.controller": controller_name,
+            "phoenix.action": action
+          ]
+        )
 
       # For non-Phoenix routes (e.g., static files handled by Plug.Static)
       conn.request_path ->
         # Group static assets to reduce cardinality
         case categorize_path(conn.request_path) do
           {:static, category} ->
-            NewRelic.set_transaction_name("Static/#{category}")
+            Tracer.update_span(
+              resource: "Static##{category}",
+              tags: ["static.category": category]
+            )
 
           :other ->
             # Don't set a name, let it fall through to default
